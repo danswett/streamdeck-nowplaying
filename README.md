@@ -241,11 +241,17 @@ Core Audio then fails **silently** — volume reads a flat zero and per-app volu
 disappears, with no error. Trimming takes the sidecar from 94 MB to 14 MB, so it
 is worth keeping, but not without that switch.
 
-If `dotnet restore` fails in `bridge/`, copy `bridge/NuGet.config.example` to
-`bridge/NuGet.config`. A plain clone needs no such file — the default nuget.org
-feed is fine — but a machine whose inherited configuration points at a private
-feed needs the `<clear />` it provides. The file is gitignored so a local
-override is never committed.
+If `dotnet restore` fails in `bridge/` with `NU1301 ... 401 (Unauthorized)`,
+copy `bridge/NuGet.config.example` to `bridge/NuGet.config`. The `<clear />` it
+provides drops inherited sources, which is the fix when a machine-level
+configuration lists a private feed that cannot authenticate non-interactively.
+If nuget.org is *also* unreachable on that machine, replace the feed URL in the
+copy with an internal package proxy.
+
+The file is gitignored, so such an override is never committed. A plain clone
+needs no NuGet.config at all, and note the failure only appears on a **cold
+package cache**: once the packages are cached locally, restore succeeds without
+contacting any feed, so a warm machine will not reproduce it.
 
 ## Testing
 
