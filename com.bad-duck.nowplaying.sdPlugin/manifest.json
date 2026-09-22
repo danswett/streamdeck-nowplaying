@@ -28,7 +28,7 @@
 		{
 			"Name": "Now Playing",
 			"UUID": "com.bad-duck.nowplaying.dial",
-			"Icon": "imgs/actions/dial",
+			"Icon": "imgs/actions/dial/icon",
 			"Tooltip": "Album art, track, artist and album on the dial, with transport and volume control.",
 			"PropertyInspectorPath": "ui/nowplaying.html",
 			"Controllers": ["Encoder"],
@@ -43,7 +43,7 @@
 			},
 			"States": [
 				{
-					"Image": "imgs/actions/dial"
+					"Image": "imgs/actions/dial/key"
 				}
 			]
 		}

@@ -226,6 +226,24 @@ node tools/harness.mjs   # full end-to-end: fake Stream Deck, real plugin
 `npm run smoke` and `tools/harness.mjs` briefly start playback and adjust the
 player's mixer volume, restoring both afterwards. Neither touches system volume.
 
+### Plugin icons
+
+`tools/build-icons.mjs` draws everything from one source, because the list and
+the deck follow different rules. Elgato require the category icon and every
+action icon — the ones inside the Stream Deck app's
+[action list](https://docs.elgato.com/guidelines/stream-deck/plugins#icons) — to
+be a monochrome white stroke on a transparent background, and call out colour
+and solid backgrounds as incorrect. The key has no such restriction, and is only
+seen before the first frame arrives anyway, since the real album art replaces it.
+
+So the mark is emitted twice: `imgs/actions/dial/icon.svg` white and untiled for
+the list, `key.svg` tinted and on its tile for the deck. The category icon drops
+both the tile and the disc fill — filled, that disc alone covers 78% of the
+canvas, which reads as a solid background however clear the corners are.
+`tests/marketplace.test.ts` rasterises every list icon and fails on any colour
+but white, on inked corners, on coverage above 80%, or on a blank icon. Pixels
+rather than markup, so a PNG cannot slip past by having no fills to read.
+
 To install for development:
 
 ```powershell

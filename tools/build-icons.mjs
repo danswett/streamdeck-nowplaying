@@ -1,38 +1,119 @@
 /**
- * Rasterizes the plugin artwork into the PNG sizes Stream Deck requires.
+ * Draws every piece of the plugin's artwork from one source.
  *
- * Action icons may stay as SVG, but the plugin Icon and CategoryIcon must be
- * PNG, and the CategoryIcon needs a @2x companion. Generated rather than
- * checked in so the artwork has one source of truth.
+ * There are two audiences here and they have different rules.
+ *
+ * The key on the deck may be any colour. It is only ever seen before the first
+ * frame arrives - once something is playing the runtime paints the real album
+ * art over it - so it keeps the dark tile and the green that the plugin's own
+ * artwork uses.
+ *
+ * The action list inside the Stream Deck app may not. Elgato require the
+ * category icon and every action icon to be a monochrome white stroke on a
+ * transparent background, and call out both colour and solid backgrounds as
+ * incorrect. So the glyph is emitted twice: white and untiled for the list,
+ * tinted and tiled for the key.
+ *
+ * https://docs.elgato.com/guidelines/stream-deck/plugins#icons
+ *
+ * Run with: node tools/build-icons.mjs
  */
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { Resvg } from "@resvg/resvg-js";
 
-const OUT = "com.bad-duck.nowplaying.sdPlugin/imgs/plugin";
+const PLUGIN = "com.bad-duck.nowplaying.sdPlugin";
+const ACTIONS = path.join(PLUGIN, "imgs", "actions");
+const PLUGIN_IMGS = path.join(PLUGIN, "imgs", "plugin");
 
-/** A record under a play head: album art plus transport, drawn once and scaled. */
-function logo(size) {
-	return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 288 288">
-<rect width="288" height="288" rx="48" fill="#121215"/>
-<circle cx="144" cy="144" r="86" fill="#1c1c21" stroke="#2e2e35" stroke-width="8"/>
-<circle cx="144" cy="144" r="52" fill="none" stroke="#1db954" stroke-width="10"/>
-<circle cx="144" cy="144" r="16" fill="#f4f4f5"/>
-<path d="M 186 104 L 186 68 L 232 78 L 232 114 Z" fill="#1db954"/>
-</svg>`;
+const TILE = "#121215";
+const ACCENT = "#1db954";
+const FRAME = "#2e2e35";
+const INK = "#f4f4f5";
+const WHITE = "#ffffff";
+
+/**
+ * A framed record with the play head beside it, on the 72px key canvas.
+ *
+ * `accent`, `frame` and `ink` are parameters rather than literals precisely so
+ * the list icon can pass white for all three.
+ */
+function dial(accent, frame, ink) {
+	return (
+		`<rect x="14" y="14" width="44" height="44" rx="6" fill="none" stroke="${frame}" stroke-width="3"/>` +
+		`<circle cx="36" cy="36" r="7.5" fill="none" stroke="${accent}" stroke-width="3"/>` +
+		`<circle cx="36" cy="36" r="2" fill="${ink}"/>` +
+		`<path d="M 44 26 L 44 20 L 52 22 L 52 28 Z" fill="${accent}"/>`
+	);
 }
 
-async function render(name, size) {
-	const resvg = new Resvg(logo(size), { fitTo: { mode: "width", value: size } });
-	const png = resvg.render().asPng();
-	const file = path.join(OUT, name);
+/** The product mark: a record under a play head, on the 288px canvas. */
+function mark(accent, frame, ink, disc) {
+	return (
+		`<circle cx="144" cy="144" r="86" fill="${disc}" stroke="${frame}" stroke-width="8"/>` +
+		`<circle cx="144" cy="144" r="52" fill="none" stroke="${accent}" stroke-width="10"/>` +
+		`<circle cx="144" cy="144" r="16" fill="${ink}"/>` +
+		`<path d="M 186 104 L 186 68 L 232 78 L 232 114 Z" fill="${accent}"/>`
+	);
+}
+
+function svg(size, viewBox, body) {
+	return (
+		`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" ` +
+		`viewBox="0 0 ${viewBox} ${viewBox}">${body}</svg>`
+	);
+}
+
+async function writeSvg(file, contents) {
+	await mkdir(path.dirname(file), { recursive: true });
+	await writeFile(file, `${contents}\n`, "utf8");
+	console.log(`  ${file}`);
+}
+
+async function writePng(file, markup, size) {
+	const png = new Resvg(markup, { fitTo: { mode: "width", value: size } }).render().asPng();
+	await mkdir(path.dirname(file), { recursive: true });
 	await writeFile(file, png);
-	console.log(`${file} (${size}x${size}, ${png.length} bytes)`);
+	console.log(`  ${file} (${size}px)`);
 }
 
-await mkdir(OUT, { recursive: true });
-await render("marketplace.png", 288);
-await render("marketplace@2x.png", 576);
-await render("category-icon.png", 28);
-await render("category-icon@2x.png", 56);
+console.log("Generating icons...");
+
+// White on transparent for the action list; tinted, on its tile, for the key.
+await writeSvg(path.join(ACTIONS, "dial", "icon.svg"), svg(72, 72, dial(WHITE, WHITE, WHITE)));
+await writeSvg(
+	path.join(ACTIONS, "dial", "key.svg"),
+	svg(72, 72, `<rect width="72" height="72" rx="12" fill="${TILE}"/>${dial(ACCENT, FRAME, INK)}`)
+);
+
+// The flat file the folder replaced. The manifest names images without an
+// extension, so anything left beside the one meant to win is ambiguous.
+await rm(path.join(ACTIONS, "dial.svg"), { force: true });
+
+// The category icon follows the same rule as the actions, so the mark loses
+// its tile and its colour here - including the disc fill, which would
+// otherwise be an opaque circle covering most of the canvas. SVG rather than
+// PNG: it is the format Elgato recommend, and it makes the separate high-DPI
+// file a raster would need unnecessary.
+await writeSvg(
+	path.join(PLUGIN_IMGS, "category-icon.svg"),
+	svg(28, 288, mark(WHITE, WHITE, WHITE, "none"))
+);
+for (const stale of ["category-icon.png", "category-icon@2x.png"]) {
+	await rm(path.join(PLUGIN_IMGS, stale), { force: true });
+}
+
+// The plugin icon is the exception, and the guidelines allow it: this one
+// appears in Stream Deck's preferences pane and on Marketplace, where it is the
+// product's mark rather than a list glyph. It must be PNG, at 256px and 512px.
+const logo = svg(
+	288,
+	288,
+	`<rect width="288" height="288" rx="48" fill="${TILE}"/>${mark(ACCENT, FRAME, INK, "#1c1c21")}`
+);
+
+await writePng(path.join(PLUGIN_IMGS, "marketplace.png"), logo, 256);
+await writePng(path.join(PLUGIN_IMGS, "marketplace@2x.png"), logo, 512);
+
+console.log("Done.");
