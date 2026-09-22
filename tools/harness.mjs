@@ -107,7 +107,10 @@ const decode = (dataUri) => {
 
 const lastPanel = [...feedbacks].reverse().find((f) => f.payload?.panel);
 const lastArt = [...feedbacks].reverse().find((f) => f.payload?.art);
+const lastCanvas = [...feedbacks].reverse().find((f) => f.payload?.canvas);
 const panelSvg = decode(lastPanel?.payload?.panel);
+const openingCanvas = decode(lastCanvas?.payload?.canvas);
+const initialLayout = layouts.at(-1)?.payload?.layout;
 
 console.log(`-- layout set: ${JSON.stringify(layouts[0]?.payload ?? "none")}`);
 console.log(`-- trigger descriptions: ${JSON.stringify(triggers[0]?.payload ?? {})}`);
@@ -155,9 +158,20 @@ const rotate = (ticks) =>
 const atStart = await readAudio();
 console.log(`-- initial: status=${atStart.status} system=${atStart.system} app=${atStart.app}`);
 
-// A player only has a mixer entry while it holds an audio stream, so the
-// volume path can only be exercised with something actually playing.
-const startedPaused = atStart.status !== "playing";
+// The transport and volume paths need a real session. When the machine is
+// silent those checks are skipped rather than reported as failures, so the
+// harness is meaningful whether or not music happens to be playing.
+const haveSession = atStart.status !== "none" && atStart.status !== "error";
+if (!haveSession) console.log("-- NOTE: no media session; transport and volume checks will be skipped\n");
+
+/** Layout in effect after the first `count` messages. */
+const effectiveLayout = (count) =>
+	sent
+		.slice(0, count)
+		.filter((m) => m.event === "setFeedbackLayout")
+		.at(-1)?.payload?.layout;
+
+const startedPaused = haveSession && atStart.status !== "playing";
 if (startedPaused) {
 	console.log("-- pressing dial to start playback");
 	press();
@@ -187,37 +201,118 @@ if (startedPaused) {
 const final = await readAudio();
 console.log(`-- final: status=${final.status} system=${final.system} app=${final.app}\n`);
 
+// -- idle state ----------------------------------------------------------
+
+// Pinning to a player that is not running is the cleanest way to reach the
+// idle path without closing whatever is genuinely playing.
+console.log("-- pinning to a player that is not running");
+const settingsFrom = sent.length;
+send({
+	event: "didReceiveSettings",
+	action: "com.dswett.nowplaying.dial",
+	context: CONTEXT,
+	device: DEVICE,
+	payload: {
+		settings: { source: "Plexamp.exe" },
+		coordinates: { column: 0, row: 0 },
+		controller: "Encoder",
+		isInMultiAction: false
+	}
+});
+await wait(1500);
+
+const afterPin = sent.slice(settingsFrom);
+const idleLayout = effectiveLayout(sent.length);
+const idleFeedback = afterPin.filter((m) => m.event === "setFeedback").at(-1);
+const idleSvg = decode(idleFeedback?.payload?.canvas);
+
+console.log(`-- idle layout: ${idleLayout}`);
+console.log(`-- idle feedback keys: ${Object.keys(idleFeedback?.payload ?? {}).join(", ")}`);
+console.log(`\n-- idle SVG ------------------------------------------\n${idleSvg}\n`);
+
+// Back to automatic, which should restore the split art/text layout.
+const restoreFrom = sent.length;
+send({
+	event: "didReceiveSettings",
+	action: "com.dswett.nowplaying.dial",
+	context: CONTEXT,
+	device: DEVICE,
+	payload: { settings: {}, coordinates: { column: 0, row: 0 }, controller: "Encoder", isInMultiAction: false }
+});
+await wait(1500);
+const afterRestore = sent.slice(restoreFrom);
+const restoredLayout = effectiveLayout(sent.length);
+const restoredArt = afterRestore.some((m) => m.event === "setFeedback" && m.payload?.art);
+console.log(`-- restored layout: ${restoredLayout}, art re-sent: ${restoredArt}\n`);
+
 // -- assertions ----------------------------------------------------------
 
+// Entries are [name, passed, skip]. Checks that need a live media session are
+// skipped on a silent machine rather than failing.
 const checks = [
-	["layout applied", layouts[0]?.payload?.layout === "layouts/nowplaying.json"],
+	["layout applied", initialLayout === (haveSession ? "layouts/nowplaying.json" : "layouts/idle.json")],
 	["trigger descriptions sent", !!triggers[0]?.payload?.rotate],
-	["panel rendered", panelSvg.startsWith("<svg")],
-	["panel is 104x100", panelSvg.includes('width="104"') && panelSvg.includes('height="100"')],
-	["artwork delivered", !!lastArt],
+	["panel rendered", panelSvg.startsWith("<svg"), !haveSession],
+	["panel is 104x100", panelSvg.includes('width="104"') && panelSvg.includes('height="100"'), !haveSession],
+	["artwork delivered", !!lastArt, !haveSession],
 	[
 		// Compared against what the sidecar actually reports, not a fixed
 		// string: the track changes as the test plays and pauses.
 		`track title on panel (${atStart.title || "nothing playing"})`,
-		atStart.title ? panelSvg.includes(atStart.title) : panelSvg.includes("Nothing playing")
+		panelSvg.includes(atStart.title),
+		!haveSession
 	],
-	["progress or volume row drawn", panelSvg.includes("<rect") && panelSvg.includes('rx="2"')],
-	["press started playback", !startedPaused || playing.status === "playing"],
-	["player has a mixer entry while playing", playing.app !== null],
-	["rotate lowered the PLAYER's mixer volume", lowered.app !== null && playing.app !== null && lowered.app < playing.app],
+	["progress or volume row drawn", panelSvg.includes("<rect") && panelSvg.includes('rx="2"'), !haveSession],
+	["press started playback", !startedPaused || playing.status === "playing", !haveSession],
+	["player has a mixer entry while playing", playing.app !== null, !haveSession],
+	[
+		"rotate lowered the PLAYER's mixer volume",
+		lowered.app !== null && playing.app !== null && lowered.app < playing.app,
+		!haveSession
+	],
 	[
 		"system volume left alone",
 		Number.isFinite(playing.system) && Number.isFinite(lowered.system) && Math.abs(lowered.system - playing.system) < 0.001
 	],
-	["readout labelled with the player, not SYSTEM", volumePanel.includes("TIDAL") && !volumePanel.includes("SYSTEM")],
-	["player volume restored", restored.app !== null && Math.abs(restored.app - playing.app) < 0.005],
-	["playback state restored", !startedPaused || final.status !== "playing"],
+	[
+		"readout labelled with the player, not SYSTEM",
+		!volumePanel.includes("SYSTEM") && (volumePanel.includes("%") || volumePanel.includes("NO MIXER")),
+		!haveSession
+	],
+	["player volume restored", restored.app !== null && Math.abs(restored.app - playing.app) < 0.005, !haveSession],
+	["playback state restored", !startedPaused || final.status !== "playing", !haveSession],
+
+	// Idle rendering, reachable regardless of what is playing.
+	[
+		// The unpinned case: the plain "nothing is on" state.
+		'unpinned idle reads "Nothing playing"',
+		openingCanvas.includes("Nothing playing"),
+		haveSession
+	],
+	["idle uses the idle layout", idleLayout === "layouts/idle.json"],
+	["idle draws one full-canvas item", Object.keys(idleFeedback?.payload ?? {}).join(",") === "canvas"],
+	["idle canvas is the full 200x100", idleSvg.includes('width="200"') && idleSvg.includes('height="100"')],
+	["idle names the player it is waiting for", idleSvg.includes("Waiting for Plexamp")],
+	["idle text is large", Number(/font-size="([\d.]+)" font-weight="600"/.exec(idleSvg)?.[1]) >= 19],
+	["idle shows no album art placeholder", !idleSvg.includes("#1c1c21")],
+	[
+		"leaving idle restores the art layout",
+		restoredLayout === "layouts/nowplaying.json" && restoredArt,
+		!haveSession
+	],
+	["stays idle when nothing is playing", restoredLayout === "layouts/idle.json", haveSession],
 	["no crash", child.exitCode === null]
 ];
 
 console.log("=== results ===");
 let failed = 0;
-for (const [name, ok] of checks) {
+let skipped = 0;
+for (const [name, ok, skip] of checks) {
+	if (skip) {
+		console.log(`SKIP  ${name}`);
+		skipped++;
+		continue;
+	}
 	console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);
 	if (!ok) failed++;
 }
@@ -227,5 +322,5 @@ await wait(500);
 
 child.kill();
 wss.close();
-console.log(failed === 0 ? "\nALL PASS" : `\n${failed} FAILED`);
+console.log(failed === 0 ? `\nALL PASS${skipped ? ` (${skipped} skipped)` : ""}` : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

@@ -43,6 +43,23 @@ Lines that do not fit scroll back and forth rather than being truncated, because
 truncation tends to remove exactly the part that distinguishes one version of a
 track from another.
 
+When nothing is playing the dial switches to a **second layout** that gives the
+whole 200×100 canvas to one centred line:
+
+```
+┌────────────────────────────────────────┐
+│                  ♪                     │
+│           Nothing playing              │
+└────────────────────────────────────────┘
+```
+
+Reusing the playing layout here meant an empty 88px art tile sitting beside a
+line of small text crammed into the remaining 104px, which reads as a plugin
+that has crashed rather than one that is simply idle. The message shrinks
+through a set of sizes and truncates only as a last resort, so a pinned player
+with a long name still fits. A pinned player that is closed is named — "Waiting
+for Plexamp" — rather than reported as a generic error.
+
 ## Volume
 
 The dial moves **the displayed player's own slider in the Windows volume mixer**

@@ -136,8 +136,13 @@ export type Face = {
 		readonly muted: boolean;
 		readonly label: string;
 	};
-	/** Shown instead of track details, e.g. when nothing is playing. */
+	/**
+	 * When set, the dial is idle: the caller switches to the idle layout and
+	 * draws this with {@link renderIdle} instead of the split art/text panel.
+	 */
 	readonly message?: string;
+	/** Optional second line under an idle message. */
+	readonly detail?: string;
 };
 
 /** Shortens a label until it leaves room for the readout beside it. */
@@ -185,18 +190,7 @@ function bar(y: number, fraction: number, fill: string): string {
 export function renderPanel(face: Face, now = Date.now()): string {
 	const body: string[] = [];
 
-	if (face.message) {
-		body.push(
-			`<text x="${PANEL_W / 2}" y="46" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"` +
-				` font-size="13" font-weight="600" fill="${DIM}">${escapeText(face.message)}</text>`
-		);
-		if (face.app) {
-			body.push(
-				`<text x="${PANEL_W / 2}" y="64" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"` +
-					` font-size="10" font-weight="400" fill="${FAINT}">${escapeText(face.app)}</text>`
-			);
-		}
-	} else {
+	{
 		const dimmed = face.status !== "playing";
 		body.push(
 			renderLine(
@@ -268,5 +262,70 @@ export function renderArtPlaceholder(label: string): string {
 		`<text x="${ART_SIZE / 2}" y="${ART_SIZE / 2 + 13}" text-anchor="middle"` +
 		` font-family="Segoe UI, Arial, sans-serif" font-size="36" font-weight="300" fill="${FAINT}">${initial}</text>` +
 		`</svg>`
+	);
+}
+
+export const CANVAS_W = 200;
+export const CANVAS_H = 100;
+
+/** Largest size at which the idle message still fits the canvas. */
+const IDLE_SIZES = [21, 19, 17, 15, 13];
+const IDLE_MARGIN = 12;
+
+/**
+ * The whole panel when there is nothing to show.
+ *
+ * Idle uses its own layout rather than the split art/text one. Reusing the
+ * playing layout meant an empty 88px art tile next to a line of small text
+ * squeezed into the remaining 104px, which reads as a plugin that has failed
+ * rather than one that is simply idle. With the full canvas the message can be
+ * centred and set large enough to be legible at a glance.
+ */
+export function renderIdle(message: string, detail?: string): string {
+	const available = CANVAS_W - IDLE_MARGIN * 2;
+
+	// Shrink first, then truncate. A name long enough to overflow even the
+	// smallest size would otherwise run off both edges of the canvas.
+	let size = IDLE_SIZES.find((candidate) => textWidth(message, candidate) <= available);
+	let text = message;
+	if (size === undefined) {
+		size = IDLE_SIZES[IDLE_SIZES.length - 1];
+		text = fit(message, size, available);
+	}
+
+	// Nudged up when a second line is present so the pair stays optically centred.
+	const baseline = detail ? 66 : 74;
+
+	const sub = detail
+		? `<text x="${CANVAS_W / 2}" y="86" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"` +
+			` font-size="11.5" font-weight="400" fill="${FAINT}">${escapeText(fit(detail, 11.5, available))}</text>`
+		: "";
+
+	return (
+		`<svg xmlns="http://www.w3.org/2000/svg" width="${CANVAS_W}" height="${CANVAS_H}"` +
+		` viewBox="0 0 ${CANVAS_W} ${CANVAS_H}">` +
+		`<rect width="${CANVAS_W}" height="${CANVAS_H}" fill="${BACKDROP}"/>` +
+		note(CANVAS_W / 2 - 11, 14) +
+		`<text x="${CANVAS_W / 2}" y="${baseline}" text-anchor="middle"` +
+		` font-family="Segoe UI, Arial, sans-serif" font-size="${size}" font-weight="600"` +
+		` fill="${DIM}">${escapeText(text)}</text>` +
+		sub +
+		`</svg>`
+	);
+}
+
+/**
+ * An eighth note, drawn rather than typed.
+ *
+ * The obvious alternative is the U+266A character, but the glyph actually used
+ * depends on whatever font the device resolves, so a path keeps it predictable.
+ */
+function note(x: number, y: number): string {
+	return (
+		`<g transform="translate(${x},${y})" fill="${FAINT}">` +
+		`<ellipse cx="6.5" cy="24" rx="6.5" ry="5" transform="rotate(-20 6.5 24)"/>` +
+		`<rect x="11.4" y="2" width="2.2" height="22"/>` +
+		`<path d="M 13.6 2 C 18 4.2 19.8 7.4 18.6 11.6 C 18.2 7.8 16.2 5.6 13.6 6.6 Z"/>` +
+		`</g>`
 	);
 }

@@ -13,13 +13,31 @@ import streamDeck, {
 } from "@elgato/streamdeck";
 import type { JsonObject, JsonValue } from "@elgato/utils";
 
-import { type Face, ART_SIZE, PANEL_W, renderArtPlaceholder, renderPanel, overflows, toPixmap } from "../render";
+import {
+	type Face,
+	ART_SIZE,
+	PANEL_W,
+	renderArtPlaceholder,
+	renderIdle,
+	renderPanel,
+	overflows,
+	toPixmap
+} from "../render";
 import { type Session, type State, bridge } from "../smtc/bridge";
-import { pick, positionOf, sources } from "../smtc/store";
+import { labelFor, pick, positionOf, sources } from "../smtc/store";
 
 const logger = streamDeck.logger.createScope("nowplaying");
 
 const LAYOUT = "layouts/nowplaying.json";
+
+/**
+ * Used whenever there is nothing to show.
+ *
+ * A separate layout, because the playing layout reserves 88px for album art;
+ * idle needs the whole canvas for one legible line instead of a blank tile
+ * beside cramped text.
+ */
+const IDLE_LAYOUT = "layouts/idle.json";
 
 /** How long the volume readout replaces the progress row after an adjustment. */
 const VOLUME_HOLD_MS = 1500;
@@ -55,6 +73,10 @@ type Settings = NowPlayingSettings & JsonObject;
 type Instance = {
 	readonly dial: DialAction<Settings>;
 	settings: NowPlayingSettings;
+	/** Layout currently applied, so it is only re-sent when it must change. */
+	layout?: string;
+	/** Last friendly name seen for a pinned source, for the idle message. */
+	sourceLabel?: string;
 	/** Last painted frame, so identical repaints are not sent to the device. */
 	paintedPanel?: string;
 	paintedArt?: string;
@@ -98,16 +120,11 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 			bridge.start();
 		}
 
-		void ev.action
-			.setFeedbackLayout(LAYOUT)
-			.catch((err) => logger.warn(`setFeedbackLayout failed: ${String(err)}`))
-			.then(() => {
-				instance.paintedPanel = undefined;
-				instance.paintedArt = undefined;
-				this.#describe(instance);
-				this.#paint(instance);
-				this.#retune();
-			});
+		// The layout is applied by the first paint, which knows whether there
+		// is anything to show.
+		this.#describe(instance);
+		this.#paint(instance);
+		this.#retune();
 	}
 
 	override onWillDisappear(ev: WillDisappearEvent<Settings>): void {
@@ -131,10 +148,14 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 		const instance = this.#instances.get(ev.action.id);
 		if (!instance) return;
 		instance.settings = ev.payload.settings ?? {};
+		// The pinned source may have changed, so the remembered name for it is
+		// no longer trustworthy.
+		instance.sourceLabel = undefined;
 		instance.paintedPanel = undefined;
 		instance.paintedArt = undefined;
 		this.#describe(instance);
 		this.#paint(instance);
+		this.#retune();
 	}
 
 	// -- interaction --------------------------------------------------------
@@ -266,18 +287,25 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 
 	#face(instance: Instance, state: State, now: number): Face {
 		const session = this.#session(instance);
-		const pinned = (instance.settings.source ?? "auto") !== "auto";
+		const source = instance.settings.source ?? "auto";
+		const pinned = source !== "auto";
 
 		if (!session) {
+			// Naming the pinned player is worth the bookkeeping: "Waiting for
+			// Plexamp" tells the user it is closed, where a bare "No source"
+			// looks like the plugin is broken.
+			const label = pinned ? (instance.sourceLabel ?? labelFor(source)) : undefined;
 			return {
 				title: "",
 				artist: "",
 				album: "",
-				app: pinned ? "Source not running" : "",
+				app: "",
 				status: "stopped",
-				message: state.sessions.length === 0 ? "Nothing playing" : "No source"
+				message: label ? `Waiting for ${label}` : "Nothing playing"
 			};
 		}
+
+		if (pinned) instance.sourceLabel = session.app;
 
 		const showVolume = now < instance.volumeUntil;
 
@@ -300,25 +328,65 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 		this.#retune();
 	}
 
+	/**
+	 * Applies the right layout, then draws into it.
+	 *
+	 * Switching layouts clears whatever the device is showing, so the painted
+	 * cache is dropped at the same time and the frame is redrawn once the
+	 * switch is acknowledged.
+	 */
 	#paint(instance: Instance): void {
+		const idle = this.#face(instance, bridge.state, Date.now()).message !== undefined;
+		const wanted = idle ? IDLE_LAYOUT : LAYOUT;
+
+		if (instance.layout === wanted) {
+			this.#draw(instance);
+			return;
+		}
+
+		instance.layout = wanted;
+		instance.paintedPanel = undefined;
+		instance.paintedArt = undefined;
+
+		void instance.dial
+			.setFeedbackLayout(wanted)
+			.then(() => this.#draw(instance))
+			.catch((err) => {
+				// Left unset so the next paint retries rather than assuming
+				// the device is showing a layout it never applied.
+				instance.layout = undefined;
+				logger.warn(`setFeedbackLayout failed: ${String(err)}`);
+			});
+	}
+
+	#draw(instance: Instance): void {
 		const now = Date.now();
 		const face = this.#face(instance, bridge.state, now);
-		const session = this.#session(instance);
+		const feedback: Record<string, string> = {};
 
-		const panel = renderPanel(face, now);
-		const art = session?.art ?? toPixmap(renderArtPlaceholder(face.app || face.title || "?"));
+		if (face.message !== undefined) {
+			const canvas = renderIdle(face.message, face.detail);
+			if (canvas !== instance.paintedPanel) {
+				instance.paintedPanel = canvas;
+				feedback.canvas = toPixmap(canvas);
+			}
+		} else {
+			const session = this.#session(instance);
+			const panel = renderPanel(face, now);
+			const art = session?.art ?? toPixmap(renderArtPlaceholder(face.app || face.title || "?"));
+
+			if (panel !== instance.paintedPanel) {
+				instance.paintedPanel = panel;
+				feedback.panel = toPixmap(panel);
+			}
+			if (art !== instance.paintedArt) {
+				instance.paintedArt = art;
+				feedback.art = art;
+			}
+		}
 
 		// Stream Deck redraws on every setFeedback call, so unchanged frames
 		// are dropped here instead of being sent down the wire.
-		const feedback: Record<string, string> = {};
-		if (panel !== instance.paintedPanel) {
-			instance.paintedPanel = panel;
-			feedback.panel = toPixmap(panel);
-		}
-		if (art !== instance.paintedArt) {
-			instance.paintedArt = art;
-			feedback.art = art;
-		}
 		if (Object.keys(feedback).length === 0) return;
 
 		void instance.dial.setFeedback(feedback).catch((err) => {
@@ -367,6 +435,10 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 
 		for (const instance of this.#instances.values()) {
 			const face = this.#face(instance, bridge.state, now);
+
+			// An idle panel is a single static line; there is nothing to move.
+			if (face.message !== undefined) continue;
+
 			const scrolling =
 				overflows(face.title, 15, PANEL_W) ||
 				overflows(face.artist, 12.5, PANEL_W) ||

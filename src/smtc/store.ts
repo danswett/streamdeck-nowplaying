@@ -65,6 +65,26 @@ export function sources(state: State): { id: string; app: string }[] {
 	return [...seen].map(([id, app]) => ({ id, app }));
 }
 
+/**
+ * A readable name for a source id, for use when that source is not running.
+ *
+ * A pinned player that is closed publishes nothing, so there is no friendly
+ * name to read off a session and the id has to be cut down instead. Good
+ * enough for the common shapes - Spotify.exe and com.squirrel.TIDAL.TIDAL both
+ * reduce to the product name.
+ */
+export function labelFor(id: string): string {
+	let trimmed = id.replace(/\.exe$/i, "");
+
+	const bang = trimmed.indexOf("!");
+	if (bang > 0) trimmed = trimmed.slice(0, bang);
+	const underscore = trimmed.indexOf("_");
+	if (underscore > 0) trimmed = trimmed.slice(0, underscore);
+
+	const parts = trimmed.split(".").filter(Boolean);
+	return parts.length > 0 ? parts[parts.length - 1] : trimmed;
+}
+
 export function formatTime(ms: number | undefined): string {
 	if (ms === undefined || !Number.isFinite(ms) || ms < 0) return "--:--";
 	const total = Math.floor(ms / 1000);

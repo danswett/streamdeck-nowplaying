@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { overflows, renderPanel, scrollOffset, textWidth, toPixmap, PANEL_W } from "../src/render";
+import {
+	CANVAS_W,
+	overflows,
+	renderIdle,
+	renderPanel,
+	scrollOffset,
+	textWidth,
+	toPixmap,
+	PANEL_W
+} from "../src/render";
 
 const base = {
 	title: "Title",
@@ -93,11 +102,6 @@ describe("renderPanel", () => {
 		expect(svg).not.toMatch(/>Me & You</);
 	});
 
-	it("renders a message instead of track rows when idle", () => {
-		const svg = renderPanel({ ...base, title: "", artist: "", album: "", message: "Nothing playing" }, 0);
-		expect(svg).toContain("Nothing playing");
-	});
-
 	it("fills the progress bar in proportion to position", () => {
 		const half = renderPanel({ ...base, position: 50_000, duration: 100_000 }, 0);
 		// Track plus fill: the fill is the second rounded rect on the bar row.
@@ -167,6 +171,70 @@ describe("renderPanel", () => {
 	it("shows placeholders when the duration is unknown", () => {
 		const svg = renderPanel(base, 0);
 		expect(svg).toContain("--:--");
+	});
+});
+
+describe("renderIdle", () => {
+	it("uses the whole 200x100 canvas, not the narrow panel", () => {
+		// The point of the separate idle layout: the message gets the full
+		// strip instead of the 104px left over beside the album art slot.
+		const svg = renderIdle("Nothing playing");
+		expect(svg).toContain(`width="${CANVAS_W}"`);
+		expect(svg).toContain('height="100"');
+		expect(svg).not.toContain(`width="${PANEL_W}"`);
+	});
+
+	it("shows the message", () => {
+		expect(renderIdle("Nothing playing")).toContain("Nothing playing");
+	});
+
+	it("sets the message far larger than the old panel text", () => {
+		const size = Number(/font-size="([\d.]+)" font-weight="600"/.exec(renderIdle("Nothing playing"))?.[1]);
+		expect(size).toBeGreaterThanOrEqual(19);
+	});
+
+	it("draws a note glyph rather than relying on a font character", () => {
+		// U+266A resolves to whatever font the device picks; a path does not.
+		const svg = renderIdle("Nothing playing");
+		expect(svg).toContain("<ellipse");
+		expect(svg).not.toContain("\u266a");
+	});
+
+	it("does not draw an album art placeholder", () => {
+		const svg = renderIdle("Nothing playing");
+		expect(svg).not.toContain('rx="6"');
+		expect(svg).not.toContain("#1c1c21");
+	});
+
+	it("shrinks, then truncates, so a long message always fits the canvas", () => {
+		const long = "Waiting for Some Extremely Long Player Name";
+		const svg = renderIdle(long);
+		const size = Number(/font-size="([\d.]+)" font-weight="600"/.exec(svg)?.[1]);
+		expect(size).toBeLessThan(21);
+
+		// Measure what is actually drawn, not what was asked for.
+		const drawn = /font-weight="600"[^>]*>([^<]*)</.exec(svg)?.[1] ?? "";
+		expect(drawn.length).toBeGreaterThan(8);
+		expect(textWidth(drawn, size)).toBeLessThanOrEqual(CANVAS_W - 24);
+	});
+
+	it("keeps the largest size for a short message", () => {
+		const size = Number(/font-size="([\d.]+)" font-weight="600"/.exec(renderIdle("Paused"))?.[1]);
+		expect(size).toBe(21);
+	});
+
+	it("centres the message", () => {
+		expect(renderIdle("Nothing playing")).toContain(`x="${CANVAS_W / 2}" y="74" text-anchor="middle"`);
+	});
+
+	it("adds a second line when given detail, and shifts the first up", () => {
+		const svg = renderIdle("Waiting for Plexamp", "Start playback to take control");
+		expect(svg).toContain("Start playback to take control");
+		expect(svg).toContain('y="66"');
+	});
+
+	it("escapes XML in the message", () => {
+		expect(renderIdle("Waiting for Me & You")).toContain("Me &amp; You");
 	});
 });
 
