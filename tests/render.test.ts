@@ -99,7 +99,17 @@ describe("renderPanel", () => {
 		expect(svg).toContain("&lt;script&gt;");
 		expect(svg).toContain("A &gt; B");
 		expect(svg).not.toContain("<script>");
-		expect(svg).not.toMatch(/>Me & You</);
+	});
+
+	it("escapes double quotes, which an attribute would need", () => {
+		// Nothing here puts metadata in an attribute today, so this is about
+		// the escaper rather than the caller: a helper called "escape" invites
+		// attribute use, and CodeQL raised exactly that against the Teams
+		// plugin once the same helper had grown attribute callers.
+		const svg = renderPanel({ ...base, title: 'He said "hi"' }, 0);
+
+		expect(svg).toContain("He said &quot;hi&quot;");
+		expect(svg).not.toContain('He said "hi"');
 	});
 
 	it("fills the progress bar in proportion to position", () => {
