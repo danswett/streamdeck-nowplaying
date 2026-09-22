@@ -5,8 +5,6 @@ dist/
 # Build output, reproduced by `npm run all`.
 com.bad-duck.nowplaying.sdPlugin/bin/
 com.bad-duck.nowplaying.sdPlugin/logs/
-com.bad-duck.nowplaying.sdPlugin/imgs/actions/*.png
-com.bad-duck.nowplaying.sdPlugin/imgs/plugin/*.png
 
 # .NET
 bridge/bin/
