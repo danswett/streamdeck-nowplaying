@@ -293,11 +293,12 @@ export function renderIdle(message: string, detail?: string): string {
 		text = fit(message, size, available);
 	}
 
-	// Nudged up when a second line is present so the pair stays optically centred.
-	const baseline = detail ? 66 : 74;
+	// Optically centred on the empty canvas; a second line lifts the first so
+	// the pair stays balanced rather than the block sinking.
+	const baseline = detail ? 50 : 58;
 
 	const sub = detail
-		? `<text x="${CANVAS_W / 2}" y="86" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"` +
+		? `<text x="${CANVAS_W / 2}" y="70" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"` +
 			` font-size="11.5" font-weight="400" fill="${FAINT}">${escapeText(fit(detail, 11.5, available))}</text>`
 		: "";
 
@@ -305,27 +306,10 @@ export function renderIdle(message: string, detail?: string): string {
 		`<svg xmlns="http://www.w3.org/2000/svg" width="${CANVAS_W}" height="${CANVAS_H}"` +
 		` viewBox="0 0 ${CANVAS_W} ${CANVAS_H}">` +
 		`<rect width="${CANVAS_W}" height="${CANVAS_H}" fill="${BACKDROP}"/>` +
-		note(CANVAS_W / 2 - 11, 14) +
 		`<text x="${CANVAS_W / 2}" y="${baseline}" text-anchor="middle"` +
 		` font-family="Segoe UI, Arial, sans-serif" font-size="${size}" font-weight="600"` +
 		` fill="${DIM}">${escapeText(text)}</text>` +
 		sub +
 		`</svg>`
-	);
-}
-
-/**
- * An eighth note, drawn rather than typed.
- *
- * The obvious alternative is the U+266A character, but the glyph actually used
- * depends on whatever font the device resolves, so a path keeps it predictable.
- */
-function note(x: number, y: number): string {
-	return (
-		`<g transform="translate(${x},${y})" fill="${FAINT}">` +
-		`<ellipse cx="6.5" cy="24" rx="6.5" ry="5" transform="rotate(-20 6.5 24)"/>` +
-		`<rect x="11.4" y="2" width="2.2" height="22"/>` +
-		`<path d="M 13.6 2 C 18 4.2 19.8 7.4 18.6 11.6 C 18.2 7.8 16.2 5.6 13.6 6.6 Z"/>` +
-		`</g>`
 	);
 }

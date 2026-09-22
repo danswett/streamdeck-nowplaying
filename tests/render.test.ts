@@ -193,11 +193,17 @@ describe("renderIdle", () => {
 		expect(size).toBeGreaterThanOrEqual(19);
 	});
 
-	it("draws a note glyph rather than relying on a font character", () => {
-		// U+266A resolves to whatever font the device picks; a path does not.
+	it("draws nothing but the message", () => {
+		// Deliberately text only: a decorative glyph beside one short line
+		// made the idle panel busier than the state it represents.
 		const svg = renderIdle("Nothing playing");
-		expect(svg).toContain("<ellipse");
+		expect(svg).not.toContain("<ellipse");
+		expect(svg).not.toContain("<path");
+		expect(svg).not.toContain("<g ");
 		expect(svg).not.toContain("\u266a");
+		// Background plus the one line of text.
+		expect((svg.match(/<text/g) ?? []).length).toBe(1);
+		expect((svg.match(/<rect/g) ?? []).length).toBe(1);
 	});
 
 	it("does not draw an album art placeholder", () => {
@@ -223,14 +229,15 @@ describe("renderIdle", () => {
 		expect(size).toBe(21);
 	});
 
-	it("centres the message", () => {
-		expect(renderIdle("Nothing playing")).toContain(`x="${CANVAS_W / 2}" y="74" text-anchor="middle"`);
+	it("centres the message vertically on the empty canvas", () => {
+		expect(renderIdle("Nothing playing")).toContain(`x="${CANVAS_W / 2}" y="58" text-anchor="middle"`);
 	});
 
-	it("adds a second line when given detail, and shifts the first up", () => {
+	it("adds a second line when given detail, and lifts the first to stay balanced", () => {
 		const svg = renderIdle("Waiting for Plexamp", "Start playback to take control");
 		expect(svg).toContain("Start playback to take control");
-		expect(svg).toContain('y="66"');
+		expect(svg).toContain('y="50"');
+		expect(svg).toContain('y="70"');
 	});
 
 	it("escapes XML in the message", () => {

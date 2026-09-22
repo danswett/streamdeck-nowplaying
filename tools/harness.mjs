@@ -295,6 +295,7 @@ const checks = [
 	["idle names the player it is waiting for", idleSvg.includes("Waiting for Plexamp")],
 	["idle text is large", Number(/font-size="([\d.]+)" font-weight="600"/.exec(idleSvg)?.[1]) >= 19],
 	["idle shows no album art placeholder", !idleSvg.includes("#1c1c21")],
+	["idle is text only, no glyph", !idleSvg.includes("<ellipse") && !idleSvg.includes("<path")],
 	[
 		"leaving idle restores the art layout",
 		restoredLayout === "layouts/nowplaying.json" && restoredArt,

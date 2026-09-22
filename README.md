@@ -48,17 +48,20 @@ whole 200×100 canvas to one centred line:
 
 ```
 ┌────────────────────────────────────────┐
-│                  ♪                     │
-│           Nothing playing              │
+│                                        │
+│            Nothing playing             │
+│                                        │
 └────────────────────────────────────────┘
 ```
 
 Reusing the playing layout here meant an empty 88px art tile sitting beside a
 line of small text crammed into the remaining 104px, which reads as a plugin
-that has crashed rather than one that is simply idle. The message shrinks
-through a set of sizes and truncates only as a last resort, so a pinned player
-with a long name still fits. A pinned player that is closed is named — "Waiting
-for Plexamp" — rather than reported as a generic error.
+that has crashed rather than one that is simply idle. Text only, deliberately:
+a decorative glyph beside a single short line made the panel busier than the
+state it represents. The message shrinks through a set of sizes and truncates
+only as a last resort, so a pinned player with a long name still fits. A pinned
+player that is closed is named — "Waiting for Plexamp" — rather than reported as
+a generic error.
 
 ## Volume
 
