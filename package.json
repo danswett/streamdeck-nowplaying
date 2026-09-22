@@ -17,6 +17,7 @@
 		"pack": "npm run all && streamdeck pack com.bad-duck.nowplaying.sdPlugin --output dist --force --no-update-check"
 	},
 	"devDependencies": {
+		"@elgato/cli": "^1.9.0",
 		"@resvg/resvg-js": "^2.6.2",
 		"@rollup/plugin-commonjs": "^29.0.2",
 		"@rollup/plugin-json": "^6.1.0",
