@@ -3,7 +3,6 @@
 Turns a Stream Deck + dial into a now playing display: album art, track, artist
 and album, with a live progress bar. Press to play or pause, tap for next, hold
 for previous, and turn for volume, track skip or scrubbing.
-
 It is **source-agnostic by design**. Rather than integrating with Spotify, TIDAL
 and Plex separately, it reads the Windows **System Media Transport Controls**
 (SMTC) — the same layer behind the popup you get when pressing a media key. Any
@@ -43,6 +42,35 @@ and much larger piece of work.
 Lines that do not fit scroll back and forth rather than being truncated, because
 truncation tends to remove exactly the part that distinguishes one version of a
 track from another.
+
+## Volume
+
+The dial moves **the displayed player's own slider in the Windows volume mixer**
+— the same slider you get under Settings → System → Sound → Volume mixer. It
+never touches the system master. A dial captioned "TIDAL" changing the volume of
+the whole machine would be actively misleading, so there is deliberately no
+fallback: `Audio` exposes no setter for the system endpoint at all, which makes
+the behaviour impossible to regress into.
+
+Finding the right mixer entry is the awkward part. SMTC identifies apps by
+AppUserModelID, which has no supported mapping back to a process:
+
+| Reported id | Process that owns the audio |
+| --- | --- |
+| `com.squirrel.TIDAL.TIDAL` | `TIDALPlayer.exe` |
+| `308046B0AF4A39CB` | `firefox.exe` |
+| `Spotify.exe` | `Spotify.exe` |
+
+`AppIdentity` resolves the known players explicitly and falls back to matching
+the id's own segments against running process names, in both prefix directions,
+so helper processes still match. Every matching session is adjusted, since
+browsers and Electron players commonly hold more than one.
+
+A player that has released its audio stream has no mixer entry — the mixer UI
+shows nothing for it either — so the dial reports `NO MIXER` and does nothing,
+rather than showing a misleading 0%. Expired sessions are skipped for the same
+reason. Inactive ones are kept, which is why a recently paused player is still
+adjustable.
 
 ## Architecture
 
@@ -84,8 +112,8 @@ npm run smoke      # drives the real sidecar, asserts transport + art
 node tools/harness.mjs   # full end-to-end: fake Stream Deck, real plugin
 ```
 
-`npm run smoke` and `tools/harness.mjs` briefly start playback and nudge system
-volume, restoring both afterwards.
+`npm run smoke` and `tools/harness.mjs` briefly start playback and adjust the
+player's mixer volume, restoring both afterwards. Neither touches system volume.
 
 To install for development:
 

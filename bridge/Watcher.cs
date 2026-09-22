@@ -218,7 +218,7 @@ internal sealed class Watcher : IDisposable
         catch { return null; }
         if (string.IsNullOrEmpty(id)) return null;
 
-        var item = new SessionPayload { Id = id, App = FriendlyName(id) };
+        var item = new SessionPayload { Id = id, App = AppIdentity.FriendlyName(id) };
 
         try
         {
@@ -281,7 +281,9 @@ internal sealed class Watcher : IDisposable
         }
         catch { /* app closed mid-read */ }
 
-        item.AppVolume = Audio.GetApp(id);
+        var audio = Audio.GetApp(id);
+        item.AppVolume = audio?.Volume;
+        item.AppMuted = audio?.Muted;
         return item;
     }
 
@@ -325,46 +327,6 @@ internal sealed class Watcher : IDisposable
         if (bytes.Length >= 12 && bytes[8] == 0x57 && bytes[9] == 0x45) return "image/webp";
         if (bytes.Length >= 6 && bytes[0] == 0x47 && bytes[1] == 0x49) return "image/gif";
         return "image/jpeg";
-    }
-
-    /// <summary>
-    /// Turns an AppUserModelID into something worth putting on a 200x100 LCD.
-    ///
-    /// The ids are packaging artefacts rather than names - Firefox reports a
-    /// bare hash, Store apps report a publisher-qualified family name - so the
-    /// common players are matched explicitly and everything else degrades to
-    /// the most name-like segment available.
-    /// </summary>
-    internal static string FriendlyName(string id)
-    {
-        var lower = id.ToLowerInvariant();
-
-        if (lower.Contains("plexamp")) return "Plexamp";
-        if (lower.Contains("spotify")) return "Spotify";
-        if (lower.Contains("tidal")) return "TIDAL";
-        if (lower.Contains("plex")) return "Plex";
-        if (lower.Contains("msedge") || lower.Contains("microsoft.edge")) return "Edge";
-        if (lower.Contains("chrome")) return "Chrome";
-        if (lower.Contains("firefox") || lower == "308046b0af4a39cb") return "Firefox";
-        if (lower.Contains("zunemusic") || lower.Contains("media.player")) return "Media Player";
-        if (lower.Contains("applemusic") || lower.Contains("itunes")) return "Apple Music";
-        if (lower.Contains("vlc")) return "VLC";
-        if (lower.Contains("foobar")) return "foobar2000";
-        if (lower.Contains("musicbee")) return "MusicBee";
-        if (lower.Contains("youtube")) return "YouTube";
-
-        var trimmed = id;
-        if (trimmed.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) trimmed = trimmed[..^4];
-
-        // Store ids look like Publisher.App_hash!App; the segment before the
-        // bang is the closest thing to a product name.
-        var bang = trimmed.IndexOf('!');
-        if (bang > 0) trimmed = trimmed[..bang];
-        var underscore = trimmed.IndexOf('_');
-        if (underscore > 0) trimmed = trimmed[..underscore];
-
-        var parts = trimmed.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length > 0 ? parts[^1] : trimmed;
     }
 
     public void Dispose()

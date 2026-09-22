@@ -115,20 +115,47 @@ describe("renderPanel", () => {
 	});
 
 	it("replaces the transport row with a volume readout when adjusting", () => {
-		const svg = renderPanel({ ...base, volume: 0.42, volumeScope: "system", position: 1000, duration: 2000 }, 0);
-		expect(svg).toContain("SYSTEM");
+		const svg = renderPanel(
+			{ ...base, volume: { level: 0.42, muted: false, label: "TIDAL" }, position: 1000, duration: 2000 },
+			0
+		);
 		expect(svg).toContain("42%");
+		// The transport clock must give way, not sit alongside the readout.
+		expect(svg).not.toContain("0:01");
 	});
 
-	it("labels per-app volume with the app name", () => {
-		const svg = renderPanel({ ...base, volume: 0.5, volumeScope: "app" }, 0);
-		expect(svg).toContain("TIDAL");
+	it("labels the readout with the player, since the dial drives its mixer entry", () => {
+		const svg = renderPanel({ ...base, volume: { level: 0.5, muted: false, label: "Plexamp" } }, 0);
+		expect(svg).toContain("PLEXAMP");
+		expect(svg).not.toContain("SYSTEM");
 	});
 
 	it("shows MUTED rather than a percentage when muted", () => {
-		const svg = renderPanel({ ...base, volume: 0.42, volumeScope: "system", muted: true }, 0);
+		const svg = renderPanel({ ...base, volume: { level: 0.42, muted: true, label: "TIDAL" } }, 0);
 		expect(svg).toContain("MUTED");
 		expect(svg).not.toContain("42%");
+	});
+
+	it("says NO MIXER when the player has no volume mixer entry", () => {
+		// A player that released its audio stream has nothing to adjust. The
+		// dial must say so rather than show a misleading 0% or quietly move
+		// the system slider instead.
+		const svg = renderPanel({ ...base, volume: { level: undefined, muted: false, label: "TIDAL" } }, 0);
+		expect(svg).toContain("NO MIXER");
+		expect(svg).not.toContain("0%");
+		// Bar drawn as an empty track, with no fill segment.
+		const widths = [...svg.matchAll(/y="62" width="([\d.]+)"/g)].map((m) => Number(m[1]));
+		expect(widths).toEqual([PANEL_W]);
+	});
+
+	it("truncates a long player name so it cannot collide with the readout", () => {
+		const svg = renderPanel(
+			{ ...base, volume: { level: 0.42, muted: false, label: "A Very Long Player Name Indeed" } },
+			0
+		);
+		expect(svg).toContain("42%");
+		expect(svg).toContain("\u2026");
+		expect(svg).not.toContain("A VERY LONG PLAYER NAME INDEED");
 	});
 
 	it("formats times as m:ss", () => {

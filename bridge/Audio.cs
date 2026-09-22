@@ -19,6 +19,9 @@ internal static class Audio
     private const int EMultimedia = 1;
     private const int ClsCtxAll = 23;
 
+    /// <summary>AudioSessionState::AudioSessionStateExpired.</summary>
+    private const int SessionExpired = 2;
+
     private static IAudioEndpointVolume? _endpoint;
     private static readonly Lock Gate = new();
 
@@ -82,6 +85,13 @@ internal static class Audio
         lock (Gate) { _endpoint = null; }
     }
 
+    /// <summary>
+    /// System endpoint level, reported for diagnostics only.
+    ///
+    /// Nothing writes to the endpoint: the dial drives the displayed player's
+    /// mixer entry instead, and there is intentionally no setter here so that
+    /// cannot regress.
+    /// </summary>
     public static (double Volume, bool Muted) GetSystem()
     {
         try
@@ -101,99 +111,78 @@ internal static class Audio
         }
     }
 
-    public static bool SetSystem(double value)
-    {
-        try
-        {
-            var endpoint = Endpoint();
-            if (endpoint is null) return false;
-            var ctx = Guid.Empty;
-            return endpoint.SetMasterVolumeLevelScalar((float)Math.Clamp(value, 0, 1), ref ctx) == 0;
-        }
-        catch
-        {
-            Invalidate();
-            return false;
-        }
-    }
-
-    public static bool SetSystemMute(bool muted)
-    {
-        try
-        {
-            var endpoint = Endpoint();
-            if (endpoint is null) return false;
-            var ctx = Guid.Empty;
-            return endpoint.SetMute(muted, ref ctx) == 0;
-        }
-        catch
-        {
-            Invalidate();
-            return false;
-        }
-    }
-
     // -- per-app session ----------------------------------------------------
 
+    /// <summary>Volume and mute for one app's mixer entry.</summary>
+    public readonly record struct AppAudio(double Volume, bool Muted);
+
     /// <summary>
-    /// Volume of the audio sessions belonging to an SMTC source app, or null
-    /// when nothing matched.
+    /// The app's entry in the Windows volume mixer, or null when it has none.
+    ///
+    /// Null is a real answer, not an error: a player that has released its
+    /// audio stream genuinely has no mixer entry, and the mixer UI shows
+    /// nothing for it either.
     /// </summary>
-    public static double? GetApp(string sourceAppId)
+    public static AppAudio? GetApp(string sourceAppId)
     {
-        foreach (var volume in MatchingSessions(sourceAppId))
+        AppAudio? result = null;
+        ForEachMatch(sourceAppId, volume =>
         {
-            if (volume.GetMasterVolume(out var level) == 0) return level;
-        }
-        return null;
+            if (volume.GetMasterVolume(out var level) != 0) return false;
+            volume.GetMute(out var muted);
+            result = new AppAudio(level, muted);
+            return true;
+        }, stopOnFirst: true);
+        return result;
     }
 
     public static bool SetApp(string sourceAppId, double value)
     {
         var target = (float)Math.Clamp(value, 0, 1);
-        var ctx = Guid.Empty;
-        var any = false;
-        foreach (var volume in MatchingSessions(sourceAppId))
-        {
-            if (volume.SetMasterVolume(target, ref ctx) == 0) any = true;
-        }
-        return any;
+        var context = Guid.Empty;
+        // Applied to every matching session: browsers and Electron players
+        // often hold more than one, and setting only the first would leave the
+        // app half-adjusted.
+        return ForEachMatch(sourceAppId, volume => volume.SetMasterVolume(target, ref context) == 0, stopOnFirst: false);
+    }
+
+    public static bool SetAppMute(string sourceAppId, bool muted)
+    {
+        var context = Guid.Empty;
+        return ForEachMatch(sourceAppId, volume => volume.SetMute(muted, ref context) == 0, stopOnFirst: false);
     }
 
     /// <summary>
-    /// Every render session whose owning process plausibly belongs to
-    /// <paramref name="sourceAppId"/>.
-    ///
-    /// SMTC identifies apps by AppUserModelID, which has no supported mapping
-    /// back to a process, so the match is heuristic: compare the id's segments
-    /// against process names, allowing either to be a prefix of the other.
-    /// Prefix matching is what catches helper processes - TIDAL reports
-    /// <c>com.squirrel.TIDAL.TIDAL</c> but renders audio from TIDALPlayer.exe,
-    /// and browsers play from a child renderer, not the broker.
+    /// Visits the render sessions belonging to an app.
     /// </summary>
-    private static List<ISimpleAudioVolume> MatchingSessions(string sourceAppId)
+    /// <returns>True when at least one visit succeeded.</returns>
+    private static bool ForEachMatch(string sourceAppId, Func<ISimpleAudioVolume, bool> visit, bool stopOnFirst)
     {
-        var matches = new List<ISimpleAudioVolume>();
-        var tokens = Tokens(sourceAppId);
-        if (tokens.Count == 0) return matches;
+        var hints = AppIdentity.ProcessHints(sourceAppId);
+        if (hints.Count == 0) return false;
 
+        var any = false;
         try
         {
             var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
-            if (enumerator.GetDefaultAudioEndpoint(ERender, EMultimedia, out var device) != 0) return matches;
+            if (enumerator.GetDefaultAudioEndpoint(ERender, EMultimedia, out var device) != 0) return false;
 
             var iid = AudioSessionManager2Iid;
-            if (device.Activate(ref iid, ClsCtxAll, IntPtr.Zero, out var raw) != 0) return matches;
+            if (device.Activate(ref iid, ClsCtxAll, IntPtr.Zero, out var raw) != 0) return false;
 
             var manager = (IAudioSessionManager2)raw;
-            if (manager.GetSessionEnumerator(out var sessions) != 0) return matches;
-            if (sessions.GetCount(out var count) != 0) return matches;
+            if (manager.GetSessionEnumerator(out var sessions) != 0) return false;
+            if (sessions.GetCount(out var count) != 0) return false;
 
             for (var i = 0; i < count; i++)
             {
-                if (sessions.GetSession(i, out var control) != 0) continue;
-                if (control is not IAudioSessionControl2 control2) continue;
-                if (control2.GetProcessId(out var pid) != 0 || pid == 0) continue;
+                if (sessions.GetSession(i, out var session) != 0) continue;
+                if (session is not IAudioSessionControl2 control) continue;
+
+                // Expired sessions are gone from the mixer UI too; acting on
+                // one would silently do nothing.
+                if (control.GetState(out var sessionState) == 0 && sessionState == SessionExpired) continue;
+                if (control.GetProcessId(out var pid) != 0 || pid == 0) continue;
 
                 string name;
                 try
@@ -203,47 +192,26 @@ internal static class Audio
                 }
                 catch
                 {
+                    // Exited between enumeration and lookup.
                     continue;
                 }
 
-                if (!Matches(tokens, name)) continue;
-                if (control is ISimpleAudioVolume volume) matches.Add(volume);
+                if (!AppIdentity.Matches(hints, name)) continue;
+                if (session is not ISimpleAudioVolume volume) continue;
+
+                if (visit(volume))
+                {
+                    any = true;
+                    if (stopOnFirst) break;
+                }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Enumeration races with apps starting and stopping; a miss simply
-            // means the caller falls back to system volume.
+            Fault("ForEachMatch", ex);
         }
 
-        return matches;
-    }
-
-    private static List<string> Tokens(string sourceAppId)
-    {
-        var parts = sourceAppId.Split(['.', '!', '\\', '/', '_'], StringSplitOptions.RemoveEmptyEntries);
-        var tokens = new List<string>();
-        foreach (var part in parts)
-        {
-            var token = part.Equals("exe", StringComparison.OrdinalIgnoreCase) ? null : part;
-            // "com", "squirrel" and friends are packaging noise that would
-            // otherwise prefix-match unrelated processes.
-            if (token is null || token.Length < 3) continue;
-            if (token is "com" or "App" or "Apps") continue;
-            if (!tokens.Contains(token, StringComparer.OrdinalIgnoreCase)) tokens.Add(token);
-        }
-        return tokens;
-    }
-
-    private static bool Matches(List<string> tokens, string processName)
-    {
-        foreach (var token in tokens)
-        {
-            if (token.Equals(processName, StringComparison.OrdinalIgnoreCase)) return true;
-            if (processName.Length >= 3 && token.StartsWith(processName, StringComparison.OrdinalIgnoreCase)) return true;
-            if (token.Length >= 3 && processName.StartsWith(token, StringComparison.OrdinalIgnoreCase)) return true;
-        }
-        return false;
+        return any;
     }
 
     // -- COM ----------------------------------------------------------------

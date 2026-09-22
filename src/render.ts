@@ -123,13 +123,32 @@ export type Face = {
 	readonly status: PlaybackStatus;
 	readonly position?: number;
 	readonly duration?: number;
-	/** When set, the transport rows are replaced by a volume readout. */
-	readonly volume?: number;
-	readonly volumeScope?: "system" | "app";
-	readonly muted?: boolean;
+	/**
+	 * When set, the transport rows are replaced by a volume readout.
+	 *
+	 * The dial drives the displayed player's Windows mixer entry, so a player
+	 * that has released its audio stream has nothing to adjust. That is
+	 * reported as a present overlay with no level, rather than silently
+	 * showing zero or falling back to the system slider.
+	 */
+	readonly volume?: {
+		readonly level?: number;
+		readonly muted: boolean;
+		readonly label: string;
+	};
 	/** Shown instead of track details, e.g. when nothing is playing. */
 	readonly message?: string;
 };
+
+/** Shortens a label until it leaves room for the readout beside it. */
+function fit(text: string, size: number, available: number): string {
+	if (textWidth(text, size) <= available) return text;
+	let result = text;
+	while (result.length > 1 && textWidth(`${result}\u2026`, size) > available) {
+		result = result.slice(0, -1);
+	}
+	return `${result}\u2026`;
+}
 
 function statusGlyph(status: PlaybackStatus, x: number, y: number, fill: string): string {
 	if (status === "playing") {
@@ -194,18 +213,21 @@ export function renderPanel(face: Face, now = Date.now()): string {
 			)
 		);
 
-		if (face.volume !== undefined) {
+		if (face.volume) {
 			// Turning the dial for volume takes over the lower rows: the
 			// progress bar is not what the user is looking at mid-adjustment.
-			const percent = Math.round(face.volume * 100);
-			const label = face.muted ? "MUTED" : `${percent}%`;
-			const scope = face.volumeScope === "app" ? face.app.toUpperCase() : "SYSTEM";
+			const { level, muted, label } = face.volume;
+			const readout = level === undefined ? "NO MIXER" : muted ? "MUTED" : `${Math.round(level * 100)}%`;
+			const inactive = level === undefined || muted;
+			const readoutWidth = textWidth(readout, 12);
+
 			body.push(
-				bar(62, face.muted ? 0 : face.volume, face.muted ? FAINT : ACCENT),
+				bar(62, inactive ? 0 : level, inactive ? FAINT : ACCENT),
 				`<text x="0" y="80" font-family="Segoe UI, Arial, sans-serif" font-size="10.5"` +
-					` font-weight="600" fill="${FAINT}" letter-spacing="0.6">${escapeText(scope)}</text>`,
+					` font-weight="600" fill="${FAINT}" letter-spacing="0.6">` +
+					`${escapeText(fit(label.toUpperCase(), 10.5, PANEL_W - readoutWidth - 6))}</text>`,
 				`<text x="${PANEL_W}" y="80" text-anchor="end" font-family="Segoe UI, Arial, sans-serif"` +
-					` font-size="12" font-weight="700" fill="${INK}">${label}</text>`
+					` font-size="12" font-weight="700" fill="${level === undefined ? FAINT : INK}">${readout}</text>`
 			);
 		} else {
 			const fraction = face.duration ? (face.position ?? 0) / face.duration : 0;

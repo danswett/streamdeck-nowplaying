@@ -33,16 +33,11 @@
 				<option value="5">5% per click &mdash; coarse</option>
 			</sdpi-select>
 		</sdpi-item>
-
-		<sdpi-item label="Volume affects">
-			<sdpi-select setting="volumeScope" default="system">
-				<option value="system">The whole system</option>
-				<option value="app">Just this player</option>
-			</sdpi-select>
-		</sdpi-item>
 		<p class="hint">
-			Per-player volume uses the Windows app mixer. A player that is paused has
-			no mixer entry, so the dial falls back to system volume until it resumes.
+			Volume always moves the player's own slider in the Windows volume mixer,
+			never the system master. A player that has released its audio stream has
+			no mixer entry, so the dial shows <code>NO MIXER</code> and does nothing
+			until it starts playing again.
 		</p>
 
 		<sdpi-item label="Press">

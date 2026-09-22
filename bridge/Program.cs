@@ -162,7 +162,8 @@ internal static class Program
                    .Append(s.ArtId).Append('~')
                    .Append(s.DurationMs).Append('~')
                    .Append(s.CanNext).Append(s.CanPrev).Append(s.CanPlayPause).Append('~')
-                   .Append(s.AppVolume is null ? "-" : Math.Round(s.AppVolume.Value, 4).ToString())
+                   .Append(s.AppVolume is null ? "-" : Math.Round(s.AppVolume.Value, 4).ToString()).Append('~')
+                   .Append(s.AppMuted is null ? "-" : s.AppMuted.Value.ToString())
                    .Append(';');
         }
         return builder.ToString();
@@ -221,12 +222,9 @@ internal static class Program
                     ok = command.PositionMs is { } position && await _watcher.SeekAsync(command.Target, position);
                     break;
 
-                case "volume": ok = AdjustVolume(command); break;
-                case "setVolume": ok = ApplyVolume(command, command.Value ?? 0); break;
-
-                case "mute":
-                    ok = Audio.SetSystemMute(command.Value is null or > 0.5);
-                    break;
+                case "volume": ok = AdjustAppVolume(command); break;
+                case "setVolume": ok = SetAppVolume(command); break;
+                case "mute": ok = SetAppMute(command); break;
 
                 case "ping": ok = true; break;
 
@@ -247,37 +245,46 @@ internal static class Program
         if (ok && command.Cmd is not ("ping" or "refresh")) Schedule();
     }
 
-    private static bool AdjustVolume(CommandPayload command)
+    /// <summary>
+    /// Adjusts the mixer entry of the app the dial is displaying.
+    ///
+    /// There is deliberately no fallback to the system endpoint. A dial
+    /// captioned with one player quietly moving the machine's master volume is
+    /// worse than doing nothing, and the failed ack lets the plugin say so on
+    /// the LCD instead.
+    /// </summary>
+    private static bool AdjustAppVolume(CommandPayload command)
     {
         var delta = command.Delta ?? 0;
         if (delta == 0) return false;
 
-        if (UseAppScope(command, out var target) && target is not null)
-        {
-            var current = Audio.GetApp(target);
-            if (current is not null) return Audio.SetApp(target, current.Value + delta);
-            // Fall through to the endpoint when the app owns no audio session,
-            // which is the normal state for a player that is paused.
-        }
+        var target = _watcher.Resolve(command.Target);
+        if (target is null) return false;
 
-        var (level, _) = Audio.GetSystem();
-        return Audio.SetSystem(level + delta);
+        var current = Audio.GetApp(target);
+        if (current is null) return false;
+
+        return Audio.SetApp(target, current.Value.Volume + delta);
     }
 
-    private static bool ApplyVolume(CommandPayload command, double value)
+    private static bool SetAppVolume(CommandPayload command)
     {
-        if (UseAppScope(command, out var target) && target is not null && Audio.GetApp(target) is not null)
-        {
-            return Audio.SetApp(target, value);
-        }
-        return Audio.SetSystem(value);
+        var target = _watcher.Resolve(command.Target);
+        if (target is null) return false;
+        if (Audio.GetApp(target) is null) return false;
+        return Audio.SetApp(target, command.Value ?? 0);
     }
 
-    private static bool UseAppScope(CommandPayload command, out string? target)
+    /// <summary>Mutes the app's mixer entry; with no value, toggles it.</summary>
+    private static bool SetAppMute(CommandPayload command)
     {
-        target = null;
-        if (!string.Equals(command.Scope, "app", StringComparison.OrdinalIgnoreCase)) return false;
-        target = _watcher.Resolve(command.Target);
-        return target is not null;
+        var target = _watcher.Resolve(command.Target);
+        if (target is null) return false;
+
+        var current = Audio.GetApp(target);
+        if (current is null) return false;
+
+        var muted = command.Value is null ? !current.Value.Muted : command.Value > 0.5;
+        return Audio.SetAppMute(target, muted);
     }
 }

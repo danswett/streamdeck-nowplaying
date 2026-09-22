@@ -29,7 +29,9 @@ export type Session = {
 	readonly artId?: string;
 	/** Resolved from the cache; the wire only carries it when it changes. */
 	art?: string;
+	/** Level of the app's Windows mixer entry, absent when it has none. */
 	readonly appVolume?: number;
+	readonly appMuted?: boolean;
 };
 
 export type State = {
@@ -41,11 +43,11 @@ export type State = {
 
 export type Command = {
 	cmd: "toggle" | "play" | "pause" | "next" | "prev" | "seek" | "volume" | "setVolume" | "mute" | "refresh" | "ping";
+	/** Session to act on; the current session when absent. */
 	target?: string;
 	value?: number;
 	delta?: number;
 	positionMs?: number;
-	scope?: "system" | "app";
 };
 
 const EMPTY: State = { volume: 0, muted: false, sessions: [] };

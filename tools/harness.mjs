@@ -117,47 +117,75 @@ console.log(`\n-- panel SVG ------------------------------------------\n${panelS
 
 // -- interaction ---------------------------------------------------------
 
-const beforeVolume = await currentVolume();
-console.log(`-- system volume before rotate: ${beforeVolume}`);
+const exeForProbe = path.join(pluginDir, "bin", "bridge", "SmtcBridge.exe");
 
-send({
-	event: "dialRotate",
-	action: "com.dswett.nowplaying.dial",
-	context: CONTEXT,
-	device: DEVICE,
-	payload: { settings: {}, coordinates: { column: 0, row: 0 }, ticks: -4, pressed: false }
-});
-await wait(1200);
-const afterVolume = await currentVolume();
-console.log(`-- system volume after -4 ticks: ${afterVolume}`);
-
-const volumePanel = decode([...sent].reverse().find((m) => m.event === "setFeedback" && m.payload?.panel)?.payload?.panel);
-const showsVolume = volumePanel.includes("SYSTEM");
-
-// Put the volume back where it started.
-send({
-	event: "dialRotate",
-	action: "com.dswett.nowplaying.dial",
-	context: CONTEXT,
-	device: DEVICE,
-	payload: { settings: {}, coordinates: { column: 0, row: 0 }, ticks: 4, pressed: false }
-});
-await wait(800);
-const restoredVolume = await currentVolume();
-console.log(`-- system volume restored: ${restoredVolume}`);
-
-async function currentVolume() {
-	const frame = [...sent].reverse().find((m) => m.event === "setFeedback");
-	// Volume is not echoed in feedback; read it from the sidecar snapshot.
+/** Reads audio state straight from the sidecar, independent of the plugin. */
+async function readAudio() {
 	const { execFileSync } = await import("node:child_process");
-	const exe = path.join(pluginDir, "bin", "bridge", "SmtcBridge.exe");
 	try {
-		const out = execFileSync(exe, ["--once"], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
-		return Number(JSON.parse(out).volume.toFixed(3));
-	} catch {
-		return frame ? NaN : NaN;
+		const out = execFileSync(exeForProbe, ["--once"], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+		const parsed = JSON.parse(out);
+		const s = parsed.sessions[0];
+		return {
+			system: Number(parsed.volume.toFixed(3)),
+			app: s?.appVolume == null ? null : Number(s.appVolume.toFixed(3)),
+			status: s?.status ?? "none",
+			title: s?.title ?? ""
+		};
+	} catch (err) {
+		console.error("probe failed:", String(err));
+		return { system: NaN, app: null, status: "error", title: "" };
 	}
 }
+
+const press = () => {
+	send({ event: "dialDown", action: "com.dswett.nowplaying.dial", context: CONTEXT, device: DEVICE, payload: { settings: {}, controller: "Encoder" } });
+	send({ event: "dialUp", action: "com.dswett.nowplaying.dial", context: CONTEXT, device: DEVICE, payload: { settings: {}, controller: "Encoder" } });
+};
+
+const rotate = (ticks) =>
+	send({
+		event: "dialRotate",
+		action: "com.dswett.nowplaying.dial",
+		context: CONTEXT,
+		device: DEVICE,
+		payload: { settings: {}, coordinates: { column: 0, row: 0 }, ticks, pressed: false }
+	});
+
+const atStart = await readAudio();
+console.log(`-- initial: status=${atStart.status} system=${atStart.system} app=${atStart.app}`);
+
+// A player only has a mixer entry while it holds an audio stream, so the
+// volume path can only be exercised with something actually playing.
+const startedPaused = atStart.status !== "playing";
+if (startedPaused) {
+	console.log("-- pressing dial to start playback");
+	press();
+	await wait(2000);
+}
+
+const playing = await readAudio();
+console.log(`-- playing: status=${playing.status} system=${playing.system} app=${playing.app}`);
+
+rotate(-4);
+await wait(1200);
+const lowered = await readAudio();
+console.log(`-- after -4 ticks: system=${lowered.system} app=${lowered.app}`);
+
+const volumePanel = decode([...sent].reverse().find((m) => m.event === "setFeedback" && m.payload?.panel)?.payload?.panel);
+
+rotate(4);
+await wait(1200);
+const restored = await readAudio();
+console.log(`-- after +4 ticks: system=${restored.system} app=${restored.app}`);
+
+if (startedPaused) {
+	console.log("-- pressing dial to restore paused state");
+	press();
+	await wait(1200);
+}
+const final = await readAudio();
+console.log(`-- final: status=${final.status} system=${final.system} app=${final.app}\n`);
 
 // -- assertions ----------------------------------------------------------
 
@@ -167,11 +195,23 @@ const checks = [
 	["panel rendered", panelSvg.startsWith("<svg")],
 	["panel is 104x100", panelSvg.includes('width="104"') && panelSvg.includes('height="100"')],
 	["artwork delivered", !!lastArt],
-	["track title on panel", panelSvg.includes("Making A Killing") || panelSvg.includes("Nothing playing")],
-	["progress or volume row drawn", panelSvg.includes("<rect") && panelSvg.includes("rx=\"2\"")],
-	["rotate changed system volume", Number.isFinite(beforeVolume) && Number.isFinite(afterVolume) && afterVolume < beforeVolume],
-	["volume overlay shown while adjusting", showsVolume],
-	["volume restored", Math.abs(restoredVolume - beforeVolume) < 0.02],
+	[
+		// Compared against what the sidecar actually reports, not a fixed
+		// string: the track changes as the test plays and pauses.
+		`track title on panel (${atStart.title || "nothing playing"})`,
+		atStart.title ? panelSvg.includes(atStart.title) : panelSvg.includes("Nothing playing")
+	],
+	["progress or volume row drawn", panelSvg.includes("<rect") && panelSvg.includes('rx="2"')],
+	["press started playback", !startedPaused || playing.status === "playing"],
+	["player has a mixer entry while playing", playing.app !== null],
+	["rotate lowered the PLAYER's mixer volume", lowered.app !== null && playing.app !== null && lowered.app < playing.app],
+	[
+		"system volume left alone",
+		Number.isFinite(playing.system) && Number.isFinite(lowered.system) && Math.abs(lowered.system - playing.system) < 0.001
+	],
+	["readout labelled with the player, not SYSTEM", volumePanel.includes("TIDAL") && !volumePanel.includes("SYSTEM")],
+	["player volume restored", restored.app !== null && Math.abs(restored.app - playing.app) < 0.005],
+	["playback state restored", !startedPaused || final.status !== "playing"],
 	["no crash", child.exitCode === null]
 ];
 

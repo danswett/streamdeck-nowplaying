@@ -43,7 +43,6 @@ export type NowPlayingSettings = {
 	/** "auto", or a specific SMTC source app id to pin to. */
 	source?: string;
 	rotate?: "volume" | "track" | "seek" | "none";
-	volumeScope?: "system" | "app";
 	/** Percentage points per detent. */
 	volumeStep?: number;
 	press?: "toggle" | "next" | "prev" | "mute" | "none";
@@ -184,9 +183,12 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 		const session = this.#session(instance);
 
 		if (mode === "volume") {
+			// Always the displayed player's own mixer entry. Falling back to
+			// the system slider would mean a dial captioned "TIDAL" quietly
+			// changing the volume of everything on the machine.
+			if (!session) return;
 			const step = (Number(instance.settings.volumeStep) || 2) / 100;
-			const scope = instance.settings.volumeScope === "app" ? "app" : "system";
-			bridge.send({ cmd: "volume", delta: ticks * step, scope, target: session?.id });
+			bridge.send({ cmd: "volume", delta: ticks * step, target: session.id });
 			instance.volumeUntil = Date.now() + VOLUME_HOLD_MS;
 			this.#retune();
 			this.#paint(instance);
@@ -238,18 +240,21 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 		if (mode === "none") return;
 
 		const session = this.#session(instance);
+		if (!session) {
+			void instance.dial.showAlert();
+			return;
+		}
+
 		if (mode === "mute") {
-			bridge.send({ cmd: "mute", value: bridge.state.muted ? 0 : 1 });
+			// Sent without a value so the sidecar toggles the app's own mixer
+			// entry, rather than acting on a possibly stale local copy.
+			bridge.send({ cmd: "mute", target: session.id });
 			instance.volumeUntil = Date.now() + VOLUME_HOLD_MS;
 			this.#retune();
 			this.#paint(instance);
 			return;
 		}
 
-		if (!session) {
-			void instance.dial.showAlert();
-			return;
-		}
 		bridge.send({ cmd: mode, target: session.id });
 	}
 
@@ -275,8 +280,6 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 		}
 
 		const showVolume = now < instance.volumeUntil;
-		const scope = instance.settings.volumeScope === "app" ? "app" : "system";
-		const level = scope === "app" ? (session.appVolume ?? state.volume) : state.volume;
 
 		return {
 			title: session.title || session.app,
@@ -286,9 +289,9 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 			status: session.status,
 			position: positionOf(session, now),
 			duration: session.durationMs,
-			volume: showVolume ? level : undefined,
-			volumeScope: showVolume ? scope : undefined,
-			muted: scope === "system" ? state.muted : false
+			volume: showVolume
+				? { level: session.appVolume, muted: session.appMuted ?? false, label: session.app }
+				: undefined
 		};
 	}
 

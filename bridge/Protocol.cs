@@ -73,8 +73,11 @@ internal sealed class SessionPayload
     /// </summary>
     public string? Art { get; set; }
 
-    /// <summary>Per-app volume 0..1 when an audio session could be matched.</summary>
+    /// <summary>Per-app volume 0..1 when the app has a mixer entry.</summary>
     public double? AppVolume { get; set; }
+
+    /// <summary>Whether the app's mixer entry is muted; null when it has none.</summary>
+    public bool? AppMuted { get; set; }
 }
 
 internal sealed class LogPayload
@@ -104,9 +107,6 @@ internal sealed class CommandPayload
     public double? Value { get; set; }
     public double? Delta { get; set; }
     public long? PositionMs { get; set; }
-
-    /// <summary>"system" or "app" for volume commands.</summary>
-    public string? Scope { get; set; }
 }
 
 [JsonSourceGenerationOptions(
