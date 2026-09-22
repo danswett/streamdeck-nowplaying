@@ -114,7 +114,12 @@ internal static class Audio
     // -- per-app session ----------------------------------------------------
 
     /// <summary>Volume and mute for one app's mixer entry.</summary>
-    public readonly record struct AppAudio(double Volume, bool Muted);
+    /// <param name="Exclusive">
+    /// True when the endpoint hosting this app is held in WASAPI exclusive
+    /// mode. Its mixer entry still exists and still accepts writes - the value
+    /// even reads back - but nothing it does reaches the speakers.
+    /// </param>
+    public readonly record struct AppAudio(double Volume, bool Muted, bool Exclusive);
 
     /// <summary>
     /// The app's entry in the Windows volume mixer, or null when it has none.
@@ -126,11 +131,11 @@ internal static class Audio
     public static AppAudio? GetApp(string sourceAppId)
     {
         AppAudio? result = null;
-        ForEachMatch(sourceAppId, volume =>
+        ForEachMatch(sourceAppId, (volume, device) =>
         {
             if (volume.GetMasterVolume(out var level) != 0) return false;
             volume.GetMute(out var muted);
-            result = new AppAudio(level, muted);
+            result = new AppAudio(level, muted, IsEndpointExclusive(device));
             return true;
         }, stopOnFirst: true);
         return result;
@@ -143,20 +148,20 @@ internal static class Audio
         // Applied to every matching session: browsers and Electron players
         // often hold more than one, and setting only the first would leave the
         // app half-adjusted.
-        return ForEachMatch(sourceAppId, volume => volume.SetMasterVolume(target, ref context) == 0, stopOnFirst: false);
+        return ForEachMatch(sourceAppId, (volume, _) => volume.SetMasterVolume(target, ref context) == 0, stopOnFirst: false);
     }
 
     public static bool SetAppMute(string sourceAppId, bool muted)
     {
         var context = Guid.Empty;
-        return ForEachMatch(sourceAppId, volume => volume.SetMute(muted, ref context) == 0, stopOnFirst: false);
+        return ForEachMatch(sourceAppId, (volume, _) => volume.SetMute(muted, ref context) == 0, stopOnFirst: false);
     }
 
     /// <summary>
     /// Visits the render sessions belonging to an app.
     /// </summary>
     /// <returns>True when at least one visit succeeded.</returns>
-    private static bool ForEachMatch(string sourceAppId, Func<ISimpleAudioVolume, bool> visit, bool stopOnFirst)
+    private static bool ForEachMatch(string sourceAppId, Func<ISimpleAudioVolume, IMMDevice, bool> visit, bool stopOnFirst)
     {
         var hints = AppIdentity.ProcessHints(sourceAppId);
         if (hints.Count == 0) return false;
@@ -209,7 +214,7 @@ internal static class Audio
                     if (!AppIdentity.Matches(hints, name)) continue;
                     if (session is not ISimpleAudioVolume volume) continue;
 
-                    if (visit(volume))
+                    if (visit(volume, device))
                     {
                         any = true;
                         if (stopOnFirst) break;
@@ -223,6 +228,83 @@ internal static class Audio
         }
 
         return any;
+    }
+
+    // -- exclusive mode ------------------------------------------------------
+
+    private const int ShareModeShared = 0;
+    private const int DeviceInUse = unchecked((int)0x8889000A);
+    private static readonly Guid AudioClientIid = new("1CB9AD4C-DBFA-4C32-B178-C2F568A703B2");
+
+    /// <summary>
+    /// Cached per endpoint. Opening a client is cheap but not free, and the
+    /// answer cannot change without an app starting or stopping playback.
+    /// </summary>
+    private static readonly Dictionary<string, (bool Exclusive, long At)> ExclusiveCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private const long ExclusiveTtlMs = 4000;
+
+    /// <summary>
+    /// Whether an endpoint is currently held in WASAPI exclusive mode.
+    ///
+    /// Detected rather than inferred: while one app owns an endpoint
+    /// exclusively, any other app's shared-mode
+    /// <c>IAudioClient::Initialize</c> fails with AUDCLNT_E_DEVICE_IN_USE.
+    /// The alternative - noticing that the endpoint meter reads zero while a
+    /// player claims to be playing - would misfire on a quiet passage or the
+    /// gap between tracks.
+    ///
+    /// The client is initialised and dropped, never started, so this does not
+    /// disturb anything that is playing.
+    /// </summary>
+    private static bool IsEndpointExclusive(IMMDevice device)
+    {
+        string id;
+        try
+        {
+            if (device.GetId(out id) != 0) return false;
+        }
+        catch
+        {
+            return false;
+        }
+
+        lock (Gate)
+        {
+            if (ExclusiveCache.TryGetValue(id, out var cached) && Environment.TickCount64 - cached.At < ExclusiveTtlMs)
+            {
+                return cached.Exclusive;
+            }
+        }
+
+        var exclusive = Probe(device);
+
+        lock (Gate) ExclusiveCache[id] = (exclusive, Environment.TickCount64);
+        return exclusive;
+    }
+
+    private static bool Probe(IMMDevice device)
+    {
+        var format = IntPtr.Zero;
+        try
+        {
+            var iid = AudioClientIid;
+            if (device.Activate(ref iid, ClsCtxAll, IntPtr.Zero, out var raw) != 0) return false;
+            if (raw is not IAudioClient client) return false;
+            if (client.GetMixFormat(out format) != 0) return false;
+
+            var hr = client.Initialize(ShareModeShared, 0, 0, 0, format, IntPtr.Zero);
+            return hr == DeviceInUse;
+        }
+        catch (Exception ex)
+        {
+            Fault("ExclusiveProbe", ex);
+            return false;
+        }
+        finally
+        {
+            if (format != IntPtr.Zero) Marshal.FreeCoTaskMem(format);
+        }
     }
 
     // -- diagnostics --------------------------------------------------------
@@ -262,7 +344,8 @@ internal static class Audio
                 if (devices.Item(i, out var device) != 0) continue;
                 device.GetId(out var id);
                 var marker = string.Equals(id, defaultId, StringComparison.OrdinalIgnoreCase) ? "*" : " ";
-                Console.WriteLine($"{marker} {DeviceName(device)}");
+                var mode = Probe(device) ? "  [EXCLUSIVE MODE IN USE]" : "";
+                Console.WriteLine($"{marker} {DeviceName(device)}{mode}");
                 Console.WriteLine($"    {id}");
 
                 var iid = AudioSessionManager2Iid;
@@ -474,6 +557,24 @@ internal static class Audio
     private interface IAudioMeterInformation
     {
         [PreserveSig] int GetPeakValue(out float peak);
+    }
+
+    [ComImport, Guid("1CB9AD4C-DBFA-4C32-B178-C2F568A703B2"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IAudioClient
+    {
+        [PreserveSig] int Initialize(int shareMode, int streamFlags, long bufferDuration, long periodicity,
+            IntPtr format, IntPtr sessionGuid);
+        [PreserveSig] int GetBufferSize(out uint frames);
+        [PreserveSig] int GetStreamLatency(out long latency);
+        [PreserveSig] int GetCurrentPadding(out uint frames);
+        [PreserveSig] int IsFormatSupported(int shareMode, IntPtr format, out IntPtr closestMatch);
+        [PreserveSig] int GetMixFormat(out IntPtr format);
+        [PreserveSig] int GetDevicePeriod(out long defaultPeriod, out long minimumPeriod);
+        [PreserveSig] int Start();
+        [PreserveSig] int Stop();
+        [PreserveSig] int Reset();
+        [PreserveSig] int SetEventHandle(IntPtr handle);
+        [PreserveSig] int GetService(ref Guid iid, [MarshalAs(UnmanagedType.IUnknown)] out object service);
     }
 
     // -- volume effectiveness test -------------------------------------------

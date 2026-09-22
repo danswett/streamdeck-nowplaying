@@ -78,6 +78,15 @@ internal sealed class SessionPayload
 
     /// <summary>Whether the app's mixer entry is muted; null when it has none.</summary>
     public bool? AppMuted { get; set; }
+
+    /// <summary>
+    /// True when the app holds its audio endpoint in WASAPI exclusive mode.
+    ///
+    /// Volume commands still succeed in that state and the level reads back
+    /// correctly, but nothing reaches the speakers, so the plugin needs to say
+    /// so rather than show a percentage that does nothing.
+    /// </summary>
+    public bool? AppExclusive { get; set; }
 }
 
 internal sealed class LogPayload

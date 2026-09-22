@@ -285,6 +285,7 @@ internal sealed class Watcher : IDisposable
         var audio = Audio.GetApp(id);
         item.AppVolume = audio?.Volume;
         item.AppMuted = audio?.Muted;
+        item.AppExclusive = audio?.Exclusive;
         return item;
     }
 

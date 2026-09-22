@@ -141,7 +141,29 @@ Plex HTPC does this by default (`audio-exclusive=yes` in its embedded mpv).
 Turning **Settings → Audio → Exclusive Mode** off restores normal per-app
 volume.
 
-The sidecar can demonstrate this rather than leaving it to guesswork:
+Rather than show a percentage that does nothing, the dial says so:
+
+```
+┌──────────────┬───────────────────────┐
+│              │ Fragments of Time     │
+│  album art   │ Daft Punk             │
+│              │                       │
+│              │    EXCLUSIVE MODE     │
+│              │   no volume control   │
+└──────────────┴───────────────────────┘
+```
+
+Exclusive mode is **detected, not inferred**: while one app owns an endpoint,
+any other app's shared-mode `IAudioClient::Initialize` fails with
+`AUDCLNT_E_DEVICE_IN_USE`. The client is opened and dropped, never started, so
+the probe disturbs nothing. The obvious alternative — noticing the endpoint
+meter reads zero while a player claims to be playing — would misfire on a quiet
+passage or the gap between tracks.
+
+Behaviour is deliberately unchanged: the dial still writes to the mixer entry,
+because silently retargeting the system volume instead would be a surprise.
+
+The sidecar can demonstrate all of this rather than leaving it to guesswork:
 
 ```powershell
 SmtcBridge.exe --diagnose   # SMTC fields and every endpoint's sessions

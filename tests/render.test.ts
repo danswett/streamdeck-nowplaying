@@ -140,6 +140,37 @@ describe("renderPanel", () => {
 		expect(svg).not.toContain("42%");
 	});
 
+	it("says EXCLUSIVE MODE instead of a percentage when the player owns the endpoint", () => {
+		// The dial's writes still succeed and the level still reads back, so a
+		// percentage would imply something is happening when nothing reaches
+		// the speakers.
+		const svg = renderPanel(
+			{ ...base, volume: { level: 0.42, muted: false, label: "Plex", exclusive: true } },
+			0
+		);
+		expect(svg).toContain("EXCLUSIVE MODE");
+		expect(svg).toContain("no volume control");
+		expect(svg).not.toContain("42%");
+		// No bar either: an empty track would read as "volume is at zero".
+		expect(svg).not.toContain('y="62"');
+	});
+
+	it("shows a normal percentage when the player is not exclusive", () => {
+		const svg = renderPanel(
+			{ ...base, volume: { level: 0.42, muted: false, label: "Plex", exclusive: false } },
+			0
+		);
+		expect(svg).toContain("42%");
+		expect(svg).not.toContain("EXCLUSIVE");
+	});
+
+	it("keeps the exclusive notice within the panel width", () => {
+		const svg = renderPanel({ ...base, volume: { level: 1, muted: false, label: "Plex", exclusive: true } }, 0);
+		expect(textWidth("EXCLUSIVE MODE", 11)).toBeLessThanOrEqual(PANEL_W);
+		expect(textWidth("no volume control", 9)).toBeLessThanOrEqual(PANEL_W);
+		expect(svg).toContain(`x="${PANEL_W / 2}"`);
+	});
+
 	it("says NO MIXER when the player has no volume mixer entry", () => {
 		// A player that released its audio stream has nothing to adjust. The
 		// dial must say so rather than show a misleading 0% or quietly move

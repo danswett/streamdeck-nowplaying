@@ -32,6 +32,11 @@ export type Session = {
 	/** Level of the app's Windows mixer entry, absent when it has none. */
 	readonly appVolume?: number;
 	readonly appMuted?: boolean;
+	/**
+	 * The app holds its audio endpoint in WASAPI exclusive mode, so its mixer
+	 * entry accepts writes that never reach the speakers.
+	 */
+	readonly appExclusive?: boolean;
 };
 
 export type State = {

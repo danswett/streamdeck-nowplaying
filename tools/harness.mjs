@@ -173,11 +173,12 @@ async function readAudio() {
 			app: s?.appVolume == null ? null : Number(s.appVolume.toFixed(3)),
 			status: s?.status ?? "none",
 			title: s?.title ?? "",
-			durationMs: s?.durationMs ?? null
+			durationMs: s?.durationMs ?? null,
+			exclusive: s?.appExclusive === true
 		};
 	} catch (err) {
 		console.error("probe failed:", String(err));
-		return { system: NaN, app: null, status: "error", title: "", durationMs: null };
+		return { system: NaN, app: null, status: "error", title: "", durationMs: null, exclusive: false };
 	}
 }
 
@@ -424,8 +425,13 @@ const checks = [
 		Number.isFinite(playing.system) && Number.isFinite(lowered.system) && Math.abs(lowered.system - playing.system) < 0.001
 	],
 	[
-		"readout labelled with the player, not SYSTEM",
-		!volumePanel.includes("SYSTEM") && (volumePanel.includes("%") || volumePanel.includes("NO MIXER")),
+		// With the endpoint held exclusively the dial cannot affect the
+		// output, so the panel must say so rather than show a percentage that
+		// does nothing.
+		`volume readout matches reality (${atStart.exclusive ? "exclusive mode" : "normal"})`,
+		atStart.exclusive
+			? volumePanel.includes("EXCLUSIVE MODE") && !volumePanel.includes("%")
+			: !volumePanel.includes("SYSTEM") && (volumePanel.includes("%") || volumePanel.includes("NO MIXER")),
 		!haveSession
 	],
 	["player volume restored", restored.app !== null && Math.abs(restored.app - playing.app) < 0.005, !haveSession],

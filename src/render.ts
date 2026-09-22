@@ -18,6 +18,7 @@ const INK = "#f4f4f5";
 const DIM = "#9a9aa3";
 const FAINT = "#6b6b74";
 const ACCENT = "#1db954";
+const AMBER = "#e0a33a";
 const TRACK = "#2c2c31";
 const BACKDROP = "#121215";
 
@@ -135,6 +136,14 @@ export type Face = {
 		readonly level?: number;
 		readonly muted: boolean;
 		readonly label: string;
+		/**
+		 * The player holds its audio endpoint in WASAPI exclusive mode.
+		 *
+		 * The dial's commands still succeed and the level still reads back, so
+		 * a percentage here would be a lie: nothing it shows reaches the
+		 * speakers.
+		 */
+		readonly exclusive?: boolean;
 	};
 	/**
 	 * When set, the dial is idle: the caller switches to the idle layout and
@@ -210,19 +219,33 @@ export function renderPanel(face: Face, now = Date.now()): string {
 		if (face.volume) {
 			// Turning the dial for volume takes over the lower rows: the
 			// progress bar is not what the user is looking at mid-adjustment.
-			const { level, muted, label } = face.volume;
-			const readout = level === undefined ? "NO MIXER" : muted ? "MUTED" : `${Math.round(level * 100)}%`;
-			const inactive = level === undefined || muted;
-			const readoutWidth = textWidth(readout, 12);
+			const { level, muted, label, exclusive } = face.volume;
 
-			body.push(
-				bar(62, inactive ? 0 : level, inactive ? FAINT : ACCENT),
-				`<text x="0" y="80" font-family="Segoe UI, Arial, sans-serif" font-size="10.5"` +
-					` font-weight="600" fill="${FAINT}" letter-spacing="0.6">` +
-					`${escapeText(fit(label.toUpperCase(), 10.5, PANEL_W - readoutWidth - 6))}</text>`,
-				`<text x="${PANEL_W}" y="80" text-anchor="end" font-family="Segoe UI, Arial, sans-serif"` +
-					` font-size="12" font-weight="700" fill="${level === undefined ? FAINT : INK}">${readout}</text>`
-			);
+			if (exclusive) {
+				// Deliberately no bar and no percentage. The dial still moves
+				// the mixer entry and the value still reads back, so showing a
+				// number would suggest something is happening when nothing
+				// reaches the speakers.
+				body.push(
+					`<text x="${PANEL_W / 2}" y="72" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"` +
+						` font-size="11" font-weight="600" fill="${AMBER}" letter-spacing="0.3">EXCLUSIVE MODE</text>`,
+					`<text x="${PANEL_W / 2}" y="86" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"` +
+						` font-size="9" font-weight="400" fill="${FAINT}">no volume control</text>`
+				);
+			} else {
+				const readout = level === undefined ? "NO MIXER" : muted ? "MUTED" : `${Math.round(level * 100)}%`;
+				const inactive = level === undefined || muted;
+				const readoutWidth = textWidth(readout, 12);
+
+				body.push(
+					bar(62, inactive ? 0 : level, inactive ? FAINT : ACCENT),
+					`<text x="0" y="80" font-family="Segoe UI, Arial, sans-serif" font-size="10.5"` +
+						` font-weight="600" fill="${FAINT}" letter-spacing="0.6">` +
+						`${escapeText(fit(label.toUpperCase(), 10.5, PANEL_W - readoutWidth - 6))}</text>`,
+					`<text x="${PANEL_W}" y="80" text-anchor="end" font-family="Segoe UI, Arial, sans-serif"` +
+						` font-size="12" font-weight="700" fill="${level === undefined ? FAINT : INK}">${readout}</text>`
+				);
+			}
 		} else if (face.duration) {
 			const fraction = (face.position ?? 0) / face.duration;
 			body.push(

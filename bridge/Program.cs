@@ -217,7 +217,7 @@ internal static class Program
                    .Append(s.DurationMs).Append('~')
                    .Append(s.CanNext).Append(s.CanPrev).Append(s.CanPlayPause).Append('~')
                    .Append(s.AppVolume is null ? "-" : Math.Round(s.AppVolume.Value, 4).ToString()).Append('~')
-                   .Append(s.AppMuted is null ? "-" : s.AppMuted.Value.ToString())
+                   .Append(s.AppMuted is null ? "-" : s.AppMuted.Value.ToString()).Append('~').Append(s.AppExclusive is null ? "-" : s.AppExclusive.Value.ToString())
                    .Append(';');
         }
         return builder.ToString();

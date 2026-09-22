@@ -341,7 +341,12 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 			position: positionOf(session, now),
 			duration: session.durationMs,
 			volume: showVolume
-				? { level: session.appVolume, muted: session.appMuted ?? false, label: session.app }
+				? {
+						level: session.appVolume,
+						muted: session.appMuted ?? false,
+						label: session.app,
+						exclusive: session.appExclusive === true
+					}
 				: undefined
 		};
 	}
