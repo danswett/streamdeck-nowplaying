@@ -1,0 +1,50 @@
+{
+	"$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+	"Name": "Now Playing",
+	"Version": "1.0.0.0",
+	"Author": "dswett",
+	"Description": "Turn a Stream Deck + dial into a now playing display. Shows album art, track, artist and album for whatever is playing on Windows, with a live progress bar. Press to play or pause, tap for next, hold for previous, and turn for volume, track or scrub. Works with any player that reports to Windows media controls, including Spotify, TIDAL, Plexamp and browser players.",
+	"Category": "Now Playing",
+	"CategoryIcon": "imgs/plugin/category-icon",
+	"Icon": "imgs/plugin/marketplace",
+	"SupportURL": "https://github.com/danswett/streamdeck-nowplaying/issues",
+	"CodePath": "bin/plugin.js",
+	"SDKVersion": 3,
+	"Software": {
+		"MinimumVersion": "7.1"
+	},
+	"OS": [
+		{
+			"Platform": "windows",
+			"MinimumVersion": "10"
+		}
+	],
+	"Nodejs": {
+		"Version": "24"
+	},
+	"UUID": "com.dswett.nowplaying",
+	"Actions": [
+		{
+			"Name": "Now Playing",
+			"UUID": "com.dswett.nowplaying.dial",
+			"Icon": "imgs/actions/dial",
+			"Tooltip": "Album art, track, artist and album on the dial, with transport and volume control.",
+			"PropertyInspectorPath": "ui/nowplaying.html",
+			"Controllers": ["Encoder"],
+			"Encoder": {
+				"layout": "layouts/nowplaying.json",
+				"TriggerDescription": {
+					"Rotate": "Volume",
+					"Push": "Play / pause",
+					"Touch": "Next track",
+					"LongTouch": "Previous track"
+				}
+			},
+			"States": [
+				{
+					"Image": "imgs/actions/dial"
+				}
+			]
+		}
+	]
+}

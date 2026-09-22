@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.streamDeckPlugin
+
+# Build output, reproduced by `npm run all`.
+com.dswett.nowplaying.sdPlugin/bin/
+com.dswett.nowplaying.sdPlugin/logs/
+com.dswett.nowplaying.sdPlugin/imgs/actions/*.png
+com.dswett.nowplaying.sdPlugin/imgs/plugin/*.png
+
+# .NET
+bridge/bin/
+bridge/obj/

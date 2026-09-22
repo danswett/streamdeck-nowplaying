@@ -1,0 +1,18 @@
+{
+	"$schema": "https://schemas.elgato.com/streamdeck/plugins/layout.json",
+	"id": "nowplaying",
+	"items": [
+		{
+			"key": "art",
+			"type": "pixmap",
+			"rect": [4, 6, 88, 88],
+			"zOrder": 0
+		},
+		{
+			"key": "panel",
+			"type": "pixmap",
+			"rect": [96, 0, 104, 100],
+			"zOrder": 1
+		}
+	]
+}

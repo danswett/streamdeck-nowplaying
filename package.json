@@ -1,0 +1,38 @@
+{
+	"name": "streamdeck-nowplaying",
+	"version": "1.0.0",
+	"private": true,
+	"description": "Stream Deck + encoder that shows album art, track, artist and album for whatever is playing on Windows, and drives transport and volume from the dial.",
+	"license": "MIT",
+	"type": "module",
+	"scripts": {
+		"build:bridge": "dotnet publish bridge/SmtcBridge.csproj -c Release -o com.dswett.nowplaying.sdPlugin/bin/bridge --nologo",
+		"build:icons": "node tools/build-icons.mjs",
+		"build": "npm run build:icons && rollup -c",
+		"all": "npm run build:bridge && npm run build",
+		"watch": "rollup -c -w --watch.onEnd=\"streamdeck restart com.dswett.nowplaying\"",
+		"validate": "streamdeck validate com.dswett.nowplaying.sdPlugin",
+		"smoke": "node tools/bridge-smoke.mjs",
+		"test": "vitest run",
+		"pack": "npm run all && streamdeck pack com.dswett.nowplaying.sdPlugin --output dist --force --no-update-check"
+	},
+	"devDependencies": {
+		"@resvg/resvg-js": "^2.6.2",
+		"@rollup/plugin-commonjs": "^29.0.2",
+		"@rollup/plugin-json": "^6.1.0",
+		"@rollup/plugin-node-resolve": "^15.2.2",
+		"@rollup/plugin-terser": "^1.0.0",
+		"@rollup/plugin-typescript": "^12.1.0",
+		"@tsconfig/node20": "^20.1.2",
+		"@types/node": "~24.1.0",
+		"rollup": "^4.0.2",
+		"tslib": "^2.6.2",
+		"typescript": "^5.2.2",
+		"vitest": "^5.0.0",
+		"ws": "^8.21.3"
+	},
+	"dependencies": {
+		"@elgato/streamdeck": "^2.1.2",
+		"@elgato/utils": "^0.6.0"
+	}
+}

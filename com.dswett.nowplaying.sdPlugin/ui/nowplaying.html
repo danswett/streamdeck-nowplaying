@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Now Playing settings</title>
+		<link rel="stylesheet" href="inspector.css" />
+		<script src="sdpi-components.js"></script>
+	</head>
+	<body>
+		<sdpi-item label="Source">
+			<sdpi-select setting="source" default="auto" datasource="getSources" loading="Looking for players..."></sdpi-select>
+		</sdpi-item>
+		<p class="hint">
+			Automatic follows whatever is actually playing, which is usually what you
+			want. Pin a specific player only if you keep more than one open at once
+			&mdash; a pinned player that is not running shows nothing rather than
+			controlling something else.
+		</p>
+
+		<sdpi-item label="Turn">
+			<sdpi-select setting="rotate" default="volume">
+				<option value="volume">Volume</option>
+				<option value="track">Previous / next track</option>
+				<option value="seek">Scrub through the track</option>
+				<option value="none">Do nothing</option>
+			</sdpi-select>
+		</sdpi-item>
+
+		<sdpi-item label="Volume step">
+			<sdpi-select setting="volumeStep" default="2">
+				<option value="1">1% per click &mdash; fine</option>
+				<option value="2">2% per click &mdash; normal</option>
+				<option value="5">5% per click &mdash; coarse</option>
+			</sdpi-select>
+		</sdpi-item>
+
+		<sdpi-item label="Volume affects">
+			<sdpi-select setting="volumeScope" default="system">
+				<option value="system">The whole system</option>
+				<option value="app">Just this player</option>
+			</sdpi-select>
+		</sdpi-item>
+		<p class="hint">
+			Per-player volume uses the Windows app mixer. A player that is paused has
+			no mixer entry, so the dial falls back to system volume until it resumes.
+		</p>
+
+		<sdpi-item label="Press">
+			<sdpi-select setting="press" default="toggle">
+				<option value="toggle">Play / pause</option>
+				<option value="next">Next track</option>
+				<option value="prev">Previous track</option>
+				<option value="mute">Mute</option>
+				<option value="none">Do nothing</option>
+			</sdpi-select>
+		</sdpi-item>
+
+		<sdpi-item label="Tap screen">
+			<sdpi-select setting="touch" default="next">
+				<option value="next">Next track</option>
+				<option value="prev">Previous track</option>
+				<option value="toggle">Play / pause</option>
+				<option value="mute">Mute</option>
+				<option value="none">Do nothing</option>
+			</sdpi-select>
+		</sdpi-item>
+
+		<sdpi-item label="Hold screen">
+			<sdpi-select setting="longTouch" default="prev">
+				<option value="prev">Previous track</option>
+				<option value="next">Next track</option>
+				<option value="toggle">Play / pause</option>
+				<option value="mute">Mute</option>
+				<option value="none">Do nothing</option>
+			</sdpi-select>
+		</sdpi-item>
+
+		<details>
+			<summary>Which players work?</summary>
+			<p class="hint">
+				Any player that reports to Windows media controls &mdash; the panel that
+				appears when you press a media key. That covers Spotify, TIDAL, Plexamp,
+				Apple Music, Media Player and anything playing in Edge, Chrome or
+				Firefox, including Plex and TIDAL on the web.
+			</p>
+			<p class="hint">
+				It only sees audio playing <em>on this PC</em>. Casting from Plex or
+				Plexamp to a speaker, phone or another machine will not appear here,
+				because nothing is playing locally to report it.
+			</p>
+		</details>
+	</body>
+</html>

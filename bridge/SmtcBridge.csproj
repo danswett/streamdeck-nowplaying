@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>SmtcBridge</AssemblyName>
+    <RootNamespace>SmtcBridge</RootNamespace>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>none</DebugType>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <!--
+      Trimming takes the sidecar from ~94 MB to ~14 MB, which matters because it
+      ships inside the plugin folder.
+    -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>full</TrimMode>
+
+    <!--
+      Core Audio is reached through [ComImport] interfaces, and trimming turns
+      built-in COM off by default: volume then reads a silent zero rather than
+      failing loudly. This switch keeps the marshalling code alive.
+    -->
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Set explicitly as well as via the property above; Trim="false" stops the
+      trimmer treating the switch as a constant and pruning the COM paths it
+      guards.
+    -->
+    <RuntimeHostConfigurationOption
+      Include="System.Runtime.InteropServices.BuiltInComInterop.IsSupported"
+      Value="true"
+      Trim="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- CsWinRT reflects over projected types; keep its metadata intact. -->
+    <TrimmerRootAssembly Include="SmtcBridge" />
+    <TrimmerRootAssembly Include="WinRT.Runtime" />
+  </ItemGroup>
+
+</Project>
