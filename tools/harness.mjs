@@ -9,7 +9,7 @@
  *
  *   node tools/harness.mjs
  */
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import path from "node:path";
 import url from "node:url";
 import { WebSocketServer } from "ws";
@@ -91,7 +91,17 @@ send({
 	}
 });
 
-await wait(3000);
+// Wait for the first painted frame rather than a fixed delay. The first launch
+// of a freshly published single-file sidecar has to extract itself, which can
+// take several seconds - long enough that a blind wait made this run fail right
+// after a rebuild while passing every time afterwards.
+const painted = () => sent.some((m) => m.event === "setFeedback" && (m.payload?.panel || m.payload?.canvas));
+const deadline = Date.now() + 25_000;
+while (Date.now() < deadline && !painted()) await wait(100);
+if (!painted()) console.error("WARNING: no frame painted within 25s");
+
+// Let the follow-up frames (layout switch, artwork) land.
+await wait(1200);
 
 const feedbacks = sent.filter((m) => m.event === "setFeedback");
 const layouts = sent.filter((m) => m.event === "setFeedbackLayout");
@@ -124,7 +134,6 @@ const exeForProbe = path.join(pluginDir, "bin", "bridge", "SmtcBridge.exe");
 
 /** Reads audio state straight from the sidecar, independent of the plugin. */
 async function readAudio() {
-	const { execFileSync } = await import("node:child_process");
 	try {
 		const out = execFileSync(exeForProbe, ["--once"], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
 		const parsed = JSON.parse(out);
@@ -264,6 +273,79 @@ const restoredLayout = effectiveLayout(sent.length);
 const restoredArt = afterRestore.some((m) => m.event === "setFeedback" && m.payload?.art);
 console.log(`-- restored layout: ${restoredLayout}, art re-sent: ${restoredArt}\n`);
 
+// -- sidecar lifecycle ----------------------------------------------------
+
+/** Sidecars parented to this plugin instance. */
+function bridgeChildren(parentPid) {
+	try {
+		const out = execFileSync(
+			"powershell",
+			[
+				"-NoProfile",
+				"-Command",
+				`@((Get-CimInstance Win32_Process -Filter "Name='SmtcBridge.exe' AND ParentProcessId=${parentPid}").ProcessId) -join ','`
+			],
+			{ encoding: "utf8" }
+		).trim();
+		return out ? out.split(",").filter(Boolean).map(Number) : [];
+	} catch {
+		return [];
+	}
+}
+
+const pluginPid = child.pid;
+const disappear = () =>
+	send({
+		event: "willDisappear",
+		action: "com.dswett.nowplaying.dial",
+		context: CONTEXT,
+		device: DEVICE,
+		payload: { settings: {}, controller: "Encoder" }
+	});
+const appear = () =>
+	send({
+		event: "willAppear",
+		action: "com.dswett.nowplaying.dial",
+		context: CONTEXT,
+		device: DEVICE,
+		payload: { settings: {}, coordinates: { column: 0, row: 0 }, controller: "Encoder", isInMultiAction: false }
+	});
+
+const beforeCycle = bridgeChildren(pluginPid);
+console.log(`-- sidecars before cycle: ${beforeCycle.length} [${beforeCycle}]`);
+
+// A quick disappear/appear is what Stream Deck does on a page switch, and is
+// the sequence that used to leave an extra sidecar behind: stop() kills the
+// child, start() spawns a new one, then the old child's exit event lands and
+// gets mistaken for a crash worth restarting from.
+console.log("-- simulating a page switch (willDisappear -> willAppear)");
+disappear();
+await wait(150);
+appear();
+await wait(3000);
+
+const afterCycle = bridgeChildren(pluginPid);
+console.log(`-- sidecars after cycle:  ${afterCycle.length} [${afterCycle}]`);
+
+// Repeat faster, several times, to make the race more likely.
+console.log("-- hammering the cycle five times");
+for (let i = 0; i < 5; i++) {
+	disappear();
+	await wait(60);
+	appear();
+	await wait(400);
+}
+await wait(3000);
+const afterHammer = bridgeChildren(pluginPid);
+console.log(`-- sidecars after hammer: ${afterHammer.length} [${afterHammer}]`);
+
+// Killing the host without warning is how a sidecar gets orphaned.
+console.log("-- killing the plugin to check the sidecar follows it");
+child.kill();
+await wait(4000);
+const afterKill = bridgeChildren(pluginPid);
+console.log(`-- sidecars after kill:   ${afterKill.length} [${afterKill}]\n`);
+
 // -- assertions ----------------------------------------------------------
 
 // Entries are [name, passed, skip]. Checks that need a live media session are
@@ -323,7 +405,13 @@ const checks = [
 		!haveSession
 	],
 	["stays idle when nothing is playing", restoredLayout === "layouts/idle.json", haveSession],
-	["no crash", child.exitCode === null]
+
+	// Sidecar lifecycle.
+	["exactly one sidecar while running", beforeCycle.length === 1],
+	["page switch does not leave a second sidecar", afterCycle.length === 1],
+	["repeated page switches do not accumulate sidecars", afterHammer.length === 1],
+	["sidecar exits when the plugin is killed", afterKill.length === 0],
+	["no crash before shutdown", child.exitCode === null || child.killed]
 ];
 
 console.log("=== results ===");
@@ -339,10 +427,6 @@ for (const [name, ok, skip] of checks) {
 	if (!ok) failed++;
 }
 
-send({ event: "willDisappear", action: "com.dswett.nowplaying.dial", context: CONTEXT, device: DEVICE, payload: { settings: {}, controller: "Encoder" } });
-await wait(500);
-
-child.kill();
 wss.close();
 console.log(failed === 0 ? `\nALL PASS${skipped ? ` (${skipped} skipped)` : ""}` : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

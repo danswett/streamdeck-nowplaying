@@ -114,6 +114,30 @@ commands on stdin. Artwork is sent only when it changes and cached by hash on
 the plugin side, since covers run 40–200 KB and would otherwise dominate the
 pipe.
 
+### Sidecar lifecycle
+
+Exactly one sidecar should ever be running. Two would both subscribe to every
+media session and both answer commands, and because each holds COM
+subscriptions an orphan is expensive rather than merely untidy.
+
+Three things guarantee it:
+
+- **Exits are matched to the child they came from.** `stop()` clears the handle
+  before killing, and the exit handler ignores any child that is no longer the
+  current one. Without this, `stop()` followed by `start()` races the old
+  child's exit event: the restart lands on top of a sidecar that is already
+  running, and the pair accumulates one per cycle. This was a real bug — six
+  sidecars after a few minutes of page switching.
+- **A live child is never replaced silently.** `#spawn()` refuses to start a
+  second one.
+- **The sidecar watches its host.** stdin EOF is the normal shutdown signal, but
+  a host killed abruptly can leave EOF unobserved, so the pid is passed with
+  `--parent` and the sidecar exits when that process does.
+
+Stream Deck also sends `willDisappear`/`willAppear` around page and profile
+changes, so the sidecar is given a short grace period before being torn down
+rather than being stopped and restarted moments later.
+
 ### Position extrapolation
 
 SMTC republishes the timeline only on discrete events, so the raw position sits

@@ -57,6 +57,15 @@ const SEEK_SECONDS = 5;
 const ANIMATE_MS = 100;
 const IDLE_MS = 500;
 
+/**
+ * Grace period before the sidecar is stopped after the last dial disappears.
+ *
+ * Stream Deck sends willDisappear/willAppear around page and profile changes,
+ * so stopping immediately means tearing the sidecar down and starting it again
+ * moments later - churn that is both wasteful and a source of races.
+ */
+const LINGER_MS = 5000;
+
 export type NowPlayingSettings = {
 	/** "auto", or a specific SMTC source app id to pin to. */
 	source?: string;
@@ -100,6 +109,7 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 	#unwatch: (() => void) | undefined;
 	#ticker: NodeJS.Timeout | undefined;
 	#tickerRate = 0;
+	#stopTimer: NodeJS.Timeout | undefined;
 
 	// -- lifecycle ----------------------------------------------------------
 
@@ -114,6 +124,13 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 			lastSkipAt: 0
 		};
 		this.#instances.set(ev.action.id, instance);
+
+		// A dial reappearing during the grace period keeps the existing
+		// sidecar rather than restarting one.
+		if (this.#stopTimer) {
+			clearTimeout(this.#stopTimer);
+			this.#stopTimer = undefined;
+		}
 
 		if (!this.#unwatch) {
 			this.#unwatch = bridge.watch(() => this.#paintAll());
@@ -136,9 +153,15 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 			this.#unwatch?.();
 			this.#unwatch = undefined;
 			this.#stopTicker();
+
 			// Nothing is displaying media any more, so the sidecar has no
-			// reason to keep polling Windows.
-			bridge.stop();
+			// reason to keep polling Windows - but give a page switch time to
+			// bring the dial back before tearing it down.
+			if (this.#stopTimer) clearTimeout(this.#stopTimer);
+			this.#stopTimer = setTimeout(() => {
+				this.#stopTimer = undefined;
+				bridge.stop();
+			}, LINGER_MS);
 		} else {
 			this.#retune();
 		}

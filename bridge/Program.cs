@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 
@@ -34,6 +35,8 @@ internal static class Program
     private static async Task<int> Main(string[] args)
     {
         _out = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true };
+
+        WatchParent(args);
 
         try
         {
@@ -82,6 +85,37 @@ internal static class Program
 
         _watcher.Dispose();
         return 0;
+    }
+
+    /// <summary>
+    /// Exits when the host process does.
+    ///
+    /// Closing stdin is the normal shutdown signal, but a host terminated
+    /// abruptly - as Stream Deck does when it stops a plugin, and as a test
+    /// harness does when it kills one - can leave EOF unobserved. An orphaned
+    /// sidecar goes unnoticed while holding COM subscriptions to every media
+    /// session, and they accumulate one per restart.
+    /// </summary>
+    private static void WatchParent(string[] args)
+    {
+        var index = Array.IndexOf(args, "--parent");
+        if (index < 0 || index + 1 >= args.Length) return;
+        if (!int.TryParse(args[index + 1], out var pid)) return;
+
+        try
+        {
+            var parent = Process.GetProcessById(pid);
+            parent.EnableRaisingEvents = true;
+            parent.Exited += (_, _) => Environment.Exit(0);
+
+            // Covers the parent dying between spawn and this subscription.
+            if (parent.HasExited) Environment.Exit(0);
+        }
+        catch (ArgumentException)
+        {
+            // No such process: it is already gone.
+            Environment.Exit(0);
+        }
     }
 
     // -- emission -----------------------------------------------------------

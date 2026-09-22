@@ -99,15 +99,21 @@ export class Bridge {
 		this.#stopped = true;
 		if (this.#restartTimer) clearTimeout(this.#restartTimer);
 		this.#restartTimer = undefined;
+
+		const child = this.#child;
+		// Cleared before the kill so the exit handler recognises this child as
+		// stale and does not treat its death as a crash.
+		this.#child = undefined;
+		if (!child) return;
+
 		// Closing stdin is the sidecar's shutdown signal; kill is the fallback
 		// for a process that is already wedged.
 		try {
-			this.#child?.stdin.end();
+			child.stdin.end();
 		} catch {
 			/* already gone */
 		}
-		this.#child?.kill();
-		this.#child = undefined;
+		child.kill();
 	}
 
 	send(command: Command): void {
@@ -134,12 +140,25 @@ export class Bridge {
 	#spawn(): void {
 		if (this.#stopped) return;
 
+		// Two sidecars would both subscribe to every media session and both
+		// answer commands, so a live child is never replaced silently.
+		if (this.#child && this.#child.exitCode === null) {
+			logger.info("bridge already running; not spawning another");
+			return;
+		}
+
 		const exe = this.#executable();
 		logger.info(`starting bridge: ${exe}`);
 
 		let child: ChildProcessWithoutNullStreams;
 		try {
-			child = spawn(exe, [], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+			// The sidecar exits when this process does. stdin EOF is the usual
+			// signal; the pid lets it notice a host that was terminated
+			// abruptly enough that EOF never arrives.
+			child = spawn(exe, ["--parent", String(process.pid)], {
+				windowsHide: true,
+				stdio: ["pipe", "pipe", "pipe"]
+			});
 		} catch (err) {
 			logger.error(`spawn failed: ${String(err)}`);
 			this.#scheduleRestart();
@@ -158,8 +177,18 @@ export class Bridge {
 		child.on("error", (err) => logger.error(`bridge error: ${err.message}`));
 
 		child.on("exit", (code, signal) => {
+			// Only the current child's death is meaningful. An exit arriving
+			// for one already replaced - or killed by stop() - is not a crash,
+			// and restarting on it is precisely what leaves extra sidecars
+			// alive: stop() followed by start() races the old exit event, so
+			// the restart lands on top of a sidecar that is already running.
+			if (this.#child !== child) {
+				logger.info(`ignoring exit of superseded bridge (code=${code}, signal=${signal})`);
+				return;
+			}
+
 			logger.warn(`bridge exited (code=${code}, signal=${signal})`);
-			if (this.#child === child) this.#child = undefined;
+			this.#child = undefined;
 			this.#publish(EMPTY);
 			this.#scheduleRestart();
 		});
