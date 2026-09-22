@@ -229,8 +229,8 @@ player's mixer volume, restoring both afterwards. Neither touches system volume.
 To install for development:
 
 ```powershell
-streamdeck link com.dswett.nowplaying.sdPlugin
-streamdeck restart com.dswett.nowplaying
+streamdeck link com.bad-duck.nowplaying.sdPlugin
+streamdeck restart com.bad-duck.nowplaying
 ```
 
 ### Two build settings that are not optional

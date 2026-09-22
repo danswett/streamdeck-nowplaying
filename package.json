@@ -6,15 +6,15 @@
 	"license": "MIT",
 	"type": "module",
 	"scripts": {
-		"build:bridge": "dotnet publish bridge/SmtcBridge.csproj -c Release -o com.dswett.nowplaying.sdPlugin/bin/bridge --nologo",
+		"build:bridge": "dotnet publish bridge/SmtcBridge.csproj -c Release -o com.bad-duck.nowplaying.sdPlugin/bin/bridge --nologo",
 		"build:icons": "node tools/build-icons.mjs",
 		"build": "npm run build:icons && rollup -c",
 		"all": "npm run build:bridge && npm run build",
-		"watch": "rollup -c -w --watch.onEnd=\"streamdeck restart com.dswett.nowplaying\"",
-		"validate": "streamdeck validate com.dswett.nowplaying.sdPlugin",
+		"watch": "rollup -c -w --watch.onEnd=\"streamdeck restart com.bad-duck.nowplaying\"",
+		"validate": "streamdeck validate com.bad-duck.nowplaying.sdPlugin",
 		"smoke": "node tools/bridge-smoke.mjs",
 		"test": "vitest run",
-		"pack": "npm run all && streamdeck pack com.dswett.nowplaying.sdPlugin --output dist --force --no-update-check"
+		"pack": "npm run all && streamdeck pack com.bad-duck.nowplaying.sdPlugin --output dist --force --no-update-check"
 	},
 	"devDependencies": {
 		"@resvg/resvg-js": "^2.6.2",

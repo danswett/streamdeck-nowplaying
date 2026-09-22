@@ -7,7 +7,7 @@ import path from "node:path";
 import url from "node:url";
 
 const isWatching = !!process.env.ROLLUP_WATCH;
-const sdPlugin = "com.dswett.nowplaying.sdPlugin";
+const sdPlugin = "com.bad-duck.nowplaying.sdPlugin";
 
 /**
  * @type {import('rollup').RollupOptions}

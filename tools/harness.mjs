@@ -15,7 +15,7 @@ import url from "node:url";
 import { WebSocketServer } from "ws";
 
 const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
-const pluginDir = path.join(root, "com.dswett.nowplaying.sdPlugin");
+const pluginDir = path.join(root, "com.bad-duck.nowplaying.sdPlugin");
 const entry = path.join(pluginDir, "bin", "plugin.js");
 
 const CONTEXT = "ctx-dial-0";
@@ -36,7 +36,7 @@ const info = {
 		platformVersion: "10.0.26100",
 		version: "7.5.1.22901"
 	},
-	plugin: { uuid: "com.dswett.nowplaying", version: "1.0.0.0" },
+	plugin: { uuid: "com.bad-duck.nowplaying", version: "1.0.0.0" },
 	devicePixelRatio: 2,
 	colors: {},
 	// Type 7 is Stream Deck +, the only family with dials and a touch strip.
@@ -80,7 +80,7 @@ send({
 
 send({
 	event: "willAppear",
-	action: "com.dswett.nowplaying.dial",
+	action: "com.bad-duck.nowplaying.dial",
 	context: CONTEXT,
 	device: DEVICE,
 	payload: {
@@ -183,14 +183,14 @@ async function readAudio() {
 }
 
 const press = () => {
-	send({ event: "dialDown", action: "com.dswett.nowplaying.dial", context: CONTEXT, device: DEVICE, payload: { settings: {}, controller: "Encoder" } });
-	send({ event: "dialUp", action: "com.dswett.nowplaying.dial", context: CONTEXT, device: DEVICE, payload: { settings: {}, controller: "Encoder" } });
+	send({ event: "dialDown", action: "com.bad-duck.nowplaying.dial", context: CONTEXT, device: DEVICE, payload: { settings: {}, controller: "Encoder" } });
+	send({ event: "dialUp", action: "com.bad-duck.nowplaying.dial", context: CONTEXT, device: DEVICE, payload: { settings: {}, controller: "Encoder" } });
 };
 
 const rotate = (ticks) =>
 	send({
 		event: "dialRotate",
-		action: "com.dswett.nowplaying.dial",
+		action: "com.bad-duck.nowplaying.dial",
 		context: CONTEXT,
 		device: DEVICE,
 		payload: { settings: {}, coordinates: { column: 0, row: 0 }, ticks, pressed: false }
@@ -269,7 +269,7 @@ console.log("-- pinning to a player that is not running");
 const settingsFrom = sent.length;
 send({
 	event: "didReceiveSettings",
-	action: "com.dswett.nowplaying.dial",
+	action: "com.bad-duck.nowplaying.dial",
 	context: CONTEXT,
 	device: DEVICE,
 	payload: {
@@ -294,7 +294,7 @@ console.log(`\n-- idle SVG ------------------------------------------\n${idleSvg
 const restoreFrom = sent.length;
 send({
 	event: "didReceiveSettings",
-	action: "com.dswett.nowplaying.dial",
+	action: "com.bad-duck.nowplaying.dial",
 	context: CONTEXT,
 	device: DEVICE,
 	payload: { settings: {}, coordinates: { column: 0, row: 0 }, controller: "Encoder", isInMultiAction: false }
@@ -329,7 +329,7 @@ const pluginPid = child.pid;
 const disappear = () =>
 	send({
 		event: "willDisappear",
-		action: "com.dswett.nowplaying.dial",
+		action: "com.bad-duck.nowplaying.dial",
 		context: CONTEXT,
 		device: DEVICE,
 		payload: { settings: {}, controller: "Encoder" }
@@ -337,7 +337,7 @@ const disappear = () =>
 const appear = () =>
 	send({
 		event: "willAppear",
-		action: "com.dswett.nowplaying.dial",
+		action: "com.bad-duck.nowplaying.dial",
 		context: CONTEXT,
 		device: DEVICE,
 		payload: { settings: {}, coordinates: { column: 0, row: 0 }, controller: "Encoder", isInMultiAction: false }

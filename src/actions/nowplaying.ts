@@ -103,7 +103,7 @@ type Instance = {
  * Transport Controls, so Spotify, TIDAL, Plexamp and browser players all work
  * without the plugin knowing they exist.
  */
-@action({ UUID: "com.dswett.nowplaying.dial" })
+@action({ UUID: "com.bad-duck.nowplaying.dial" })
 export class NowPlayingAction extends SingletonAction<Settings> {
 	readonly #instances = new Map<string, Instance>();
 	#unwatch: (() => void) | undefined;

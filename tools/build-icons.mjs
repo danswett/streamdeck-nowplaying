@@ -10,7 +10,7 @@ import path from "node:path";
 
 import { Resvg } from "@resvg/resvg-js";
 
-const OUT = "com.dswett.nowplaying.sdPlugin/imgs/plugin";
+const OUT = "com.bad-duck.nowplaying.sdPlugin/imgs/plugin";
 
 /** A record under a play head: album art plus transport, drawn once and scaled. */
 function logo(size) {
