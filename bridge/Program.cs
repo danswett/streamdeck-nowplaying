@@ -49,6 +49,26 @@ internal static class Program
             return 1;
         }
 
+        if (args.Contains("--diagnose"))
+        {
+            await Diagnostics.RunAsync();
+            return 0;
+        }
+
+        if (args.Contains("--meters"))
+        {
+            Audio.Meters(4000);
+            return 0;
+        }
+
+        if (args.Contains("--voltest"))
+        {
+            var target = _watcher.Resolve(null);
+            if (target is null) Console.WriteLine("no current session");
+            else Audio.TestEffectiveness(target, 0.25);
+            return 0;
+        }
+
         if (args.Contains("--once"))
         {
             await WriteAsync(await _watcher.SnapshotAsync());

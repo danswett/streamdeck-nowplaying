@@ -15,7 +15,7 @@ player that reports to SMTC works with no per-app code:
 | Plexamp (desktop) | Yes | Electron app, reports to SMTC |
 | Plex / TIDAL / Spotify in a browser | Yes | Edge, Chrome and Firefox all publish sessions |
 | Apple Music, Media Player, foobar2000, MusicBee, VLC | Yes | |
-| Plex HTPC (the Qt/mpv desktop app) | Partly | Metadata, artwork and transport work; it publishes **no position or duration**, so there is no progress bar |
+| Plex HTPC (the Qt/mpv desktop app) | Partly | Metadata, artwork and transport work. It publishes **no position or duration**, and by default runs audio in **WASAPI exclusive mode**, which makes per-app volume impossible — see below |
 | Anything cast to another device | **No** | See below |
 
 ### The one real limitation
@@ -129,6 +129,28 @@ Two things about artwork are not obvious, and both were found against Plex:
   88×88 layout units, 176px on the device. Plex serves 1280×1280 — about 435 KB
   once base64'd, for every track change. Artwork is scaled to a 192px longest
   edge before it leaves the sidecar, which took that example to 8 KB.
+
+### When per-app volume cannot work
+
+An app rendering in **WASAPI exclusive mode** takes the endpoint for itself and
+bypasses the Windows audio engine. Its mixer entry still exists and can still be
+set — the value even reads back — but nothing it does reaches the speakers.
+Windows' own Volume Mixer slider is equally ineffective for such an app.
+
+Plex HTPC does this by default (`audio-exclusive=yes` in its embedded mpv).
+Turning **Settings → Audio → Exclusive Mode** off restores normal per-app
+volume.
+
+The sidecar can demonstrate this rather than leaving it to guesswork:
+
+```powershell
+SmtcBridge.exe --diagnose   # SMTC fields and every endpoint's sessions
+SmtcBridge.exe --meters     # peak level per endpoint; all-zero means exclusive mode
+SmtcBridge.exe --voltest    # halves the app's volume and measures the change
+```
+
+If `--meters` shows no signal on any endpoint while a player reports "playing",
+the stream is either exclusive-mode or not local at all.
 
 ### Players that publish no timeline
 
