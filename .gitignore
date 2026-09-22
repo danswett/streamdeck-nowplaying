@@ -11,3 +11,7 @@ com.dswett.nowplaying.sdPlugin/imgs/plugin/*.png
 # .NET
 bridge/bin/
 bridge/obj/
+
+# Local feed override. Kept out of the repo because it is machine-specific and
+# may name an internal package proxy; see bridge/NuGet.config.example.
+bridge/NuGet.config

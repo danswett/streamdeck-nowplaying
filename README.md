@@ -130,9 +130,11 @@ Core Audio then fails **silently** — volume reads a flat zero and per-app volu
 disappears, with no error. Trimming takes the sidecar from 94 MB to 14 MB, so it
 is worth keeping, but not without that switch.
 
-`bridge/NuGet.config` scopes the feed to the Microsoft package proxy. The
-machine-level config points at an Azure DevOps feed that returns 401, and
-`api.nuget.org` is blocked by Defender network protection.
+If `dotnet restore` fails in `bridge/`, copy `bridge/NuGet.config.example` to
+`bridge/NuGet.config`. A plain clone needs no such file — the default nuget.org
+feed is fine — but a machine whose inherited configuration points at a private
+feed needs the `<clear />` it provides. The file is gitignored so a local
+override is never committed.
 
 ## Testing
 

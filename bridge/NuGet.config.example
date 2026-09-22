@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copy to NuGet.config if `dotnet restore` fails in bridge/.
+
+  A plain clone needs no NuGet.config at all - the default nuget.org feed is
+  fine. This exists for machines whose machine-level configuration points at a
+  private feed that returns 401, or where nuget.org itself is unreachable; the
+  <clear /> drops the inherited sources so only the one below is consulted.
+
+  On a corporate network, substitute your own internal package proxy.
+
+  NuGet.config is gitignored so a local override never ends up committed.
+-->
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+  </packageSources>
+  <packageSourceCredentials />
+  <apikeys />
+</configuration>
