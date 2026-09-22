@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Windows.Foundation;
+using Windows.Graphics.Imaging;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
 
@@ -311,8 +312,8 @@ internal sealed class Watcher : IDisposable
             reader.ReadBytes(bytes);
 
             var id = Convert.ToHexString(SHA256.HashData(bytes))[..16];
-            var mime = string.IsNullOrEmpty(stream.ContentType) ? Sniff(bytes) : stream.ContentType;
-            return (id, $"data:{mime};base64,{Convert.ToBase64String(bytes)}");
+            var (encoded, mime) = await ShrinkAsync(bytes, stream.ContentType, cancel.Token);
+            return (id, $"data:{mime};base64,{Convert.ToBase64String(encoded)}");
         }
         catch
         {
@@ -320,13 +321,110 @@ internal sealed class Watcher : IDisposable
         }
     }
 
-    private static string Sniff(byte[] bytes)
+    /// <summary>Longest edge kept for artwork, in pixels.</summary>
+    /// <remarks>
+    /// The art slot is 88x88 layout units, which is 176px on the device's 2x
+    /// touch strip. Players publish far larger: Plex serves 1280x1280, about
+    /// 435 KB once base64'd, for every track change. Sending that through the
+    /// Stream Deck websocket is wasteful at best and is the kind of payload a
+    /// host may simply drop.
+    /// </remarks>
+    private const uint MaxArtEdge = 192;
+
+    /// <summary>
+    /// Scales artwork down to something proportionate to the slot it lands in.
+    ///
+    /// Falls back to the original bytes whenever anything goes wrong: sending
+    /// a large image is far better than sending none.
+    /// </summary>
+    private static async Task<(byte[] Bytes, string Mime)> ShrinkAsync(
+        byte[] bytes,
+        string? contentType,
+        CancellationToken token)
+    {
+        var mime = MimeFor(bytes, contentType);
+
+        try
+        {
+            using var source = new InMemoryRandomAccessStream();
+            using (var writer = new DataWriter(source))
+            {
+                writer.WriteBytes(bytes);
+                await writer.StoreAsync().AsTask(token);
+                writer.DetachStream();
+            }
+            source.Seek(0);
+
+            var decoder = await BitmapDecoder.CreateAsync(source).AsTask(token);
+            var scale = Math.Min(
+                (double)MaxArtEdge / decoder.PixelWidth,
+                (double)MaxArtEdge / decoder.PixelHeight);
+
+            // Already small enough; re-encoding would only lose quality.
+            if (scale >= 1) return (bytes, mime);
+
+            using var output = new InMemoryRandomAccessStream();
+            var encoder = await BitmapEncoder.CreateForTranscodingAsync(output, decoder).AsTask(token);
+            encoder.BitmapTransform.InterpolationMode = BitmapInterpolationMode.Fant;
+            encoder.BitmapTransform.ScaledWidth = (uint)Math.Max(1, Math.Round(decoder.PixelWidth * scale));
+            encoder.BitmapTransform.ScaledHeight = (uint)Math.Max(1, Math.Round(decoder.PixelHeight * scale));
+            await encoder.FlushAsync().AsTask(token);
+
+            output.Seek(0);
+            var shrunk = new byte[output.Size];
+            using (var reader = new DataReader(output))
+            {
+                await reader.LoadAsync((uint)output.Size).AsTask(token);
+                reader.ReadBytes(shrunk);
+            }
+
+            return shrunk.Length > 0 && shrunk.Length < bytes.Length
+                ? (shrunk, MimeFor(shrunk, mime))
+                : (bytes, mime);
+        }
+        catch (Exception ex)
+        {
+            try { Console.Error.WriteLine($"[art] shrink failed, sending original: {ex.GetType().Name}: {ex.Message}"); }
+            catch { }
+            return (bytes, mime);
+        }
+    }
+
+    /// <summary>
+    /// Chooses the MIME type to declare in the artwork data URI.
+    ///
+    /// The bytes are trusted ahead of the app's own content type, because that
+    /// header is not always a single value. Plex reports
+    /// <c>image/jpeg,image/jpe,image/jpg</c>, which embedded verbatim yields
+    /// <c>data:image/jpeg,image/jpe,image/jpg;base64,...</c> - and a data URI
+    /// parser stops at the first comma, so it sees a plain <c>image/jpeg</c>
+    /// payload with no base64 flag and decodes the remainder as text. The
+    /// artwork then fails to render with no error anywhere.
+    /// </summary>
+    private static string MimeFor(byte[] bytes, string? contentType)
+    {
+        if (Sniff(bytes) is { } sniffed) return sniffed;
+
+        // Nothing recognisable in the bytes: fall back to the first declared
+        // type, provided it survives being cut at the first separator.
+        var declared = contentType?.Split(',', ';')[0].Trim();
+        if (!string.IsNullOrEmpty(declared) && declared.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            return declared;
+        }
+
+        return "image/jpeg";
+    }
+
+    /// <summary>Image type implied by the leading bytes, or null if unknown.</summary>
+    private static string? Sniff(byte[] bytes)
     {
         if (bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) return "image/jpeg";
-        if (bytes.Length >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50) return "image/png";
-        if (bytes.Length >= 12 && bytes[8] == 0x57 && bytes[9] == 0x45) return "image/webp";
-        if (bytes.Length >= 6 && bytes[0] == 0x47 && bytes[1] == 0x49) return "image/gif";
-        return "image/jpeg";
+        if (bytes.Length >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) return "image/png";
+        if (bytes.Length >= 12 && bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[8] == 0x57 && bytes[9] == 0x45) return "image/webp";
+        if (bytes.Length >= 6 && bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) return "image/gif";
+        if (bytes.Length >= 2 && bytes[0] == 0x42 && bytes[1] == 0x4D) return "image/bmp";
+        return null;
     }
 
     public void Dispose()

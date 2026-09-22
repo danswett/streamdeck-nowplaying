@@ -115,6 +115,34 @@ const decode = (dataUri) => {
 	return Buffer.from(dataUri.slice(comma + 1), "base64").toString("utf8");
 };
 
+/**
+ * Checks that an artwork data URI is actually decodable.
+ *
+ * Asserting only that artwork was *sent* missed a real failure: a player whose
+ * declared content type contains commas produced a data URI that parses as a
+ * non-base64 payload, so Stream Deck decoded rubbish and drew nothing, with no
+ * error anywhere.
+ */
+function inspectArt(dataUri) {
+	if (typeof dataUri !== "string" || !dataUri.startsWith("data:")) return { ok: false, why: "not a data URI" };
+
+	const header = dataUri.slice(5, dataUri.indexOf(","));
+	if (!/^image\/[a-z0-9.+-]+;base64$/i.test(header)) {
+		return { ok: false, why: `malformed header "${header}"` };
+	}
+
+	const bytes = Buffer.from(dataUri.slice(dataUri.indexOf(",") + 1), "base64");
+	const magic = [...bytes.subarray(0, 4)].map((b) => b.toString(16).padStart(2, "0")).join(" ");
+	const known =
+		(bytes[0] === 0xff && bytes[1] === 0xd8) || // jpeg
+		(bytes[0] === 0x89 && bytes[1] === 0x50) || // png
+		(bytes[0] === 0x47 && bytes[1] === 0x49) || // gif
+		(bytes[0] === 0x52 && bytes[1] === 0x49) || // webp
+		(bytes[0] === 0x42 && bytes[1] === 0x4d); //   bmp
+
+	return { ok: known, why: known ? "" : `unrecognised magic ${magic}`, header, bytes: bytes.length, magic };
+}
+
 const lastPanel = [...feedbacks].reverse().find((f) => f.payload?.panel);
 const lastArt = [...feedbacks].reverse().find((f) => f.payload?.art);
 const lastCanvas = [...feedbacks].reverse().find((f) => f.payload?.canvas);
@@ -125,7 +153,9 @@ const initialLayout = layouts.at(-1)?.payload?.layout;
 console.log(`-- layout set: ${JSON.stringify(layouts[0]?.payload ?? "none")}`);
 console.log(`-- trigger descriptions: ${JSON.stringify(triggers[0]?.payload ?? {})}`);
 console.log(`-- setFeedback frames: ${feedbacks.length}`);
-console.log(`-- art: ${decode(lastArt?.payload?.art).slice(0, 60)}`);
+
+const art = inspectArt(lastArt?.payload?.art);
+console.log(`-- art: ${lastArt ? `${art.header} ${art.bytes}B magic=[${art.magic}] ${art.ok ? "VALID" : `INVALID (${art.why})`}` : "none"}`);
 console.log(`\n-- panel SVG ------------------------------------------\n${panelSvg}\n`);
 
 // -- interaction ---------------------------------------------------------
@@ -142,11 +172,12 @@ async function readAudio() {
 			system: Number(parsed.volume.toFixed(3)),
 			app: s?.appVolume == null ? null : Number(s.appVolume.toFixed(3)),
 			status: s?.status ?? "none",
-			title: s?.title ?? ""
+			title: s?.title ?? "",
+			durationMs: s?.durationMs ?? null
 		};
 	} catch (err) {
 		console.error("probe failed:", String(err));
-		return { system: NaN, app: null, status: "error", title: "" };
+		return { system: NaN, app: null, status: "error", title: "", durationMs: null };
 	}
 }
 
@@ -356,6 +387,7 @@ const checks = [
 	["panel rendered", panelSvg.startsWith("<svg"), !haveSession],
 	["panel is 104x100", panelSvg.includes('width="104"') && panelSvg.includes('height="100"'), !haveSession],
 	["artwork delivered", !!lastArt, !haveSession],
+	[`artwork is a decodable image${lastArt ? ` (${art.header})` : ""}`, art.ok, !haveSession],
 	[
 		// Compared against what the sidecar actually reports, not a fixed
 		// string: the track changes as the test plays and pauses.
@@ -363,7 +395,21 @@ const checks = [
 		panelSvg.includes(atStart.title),
 		!haveSession
 	],
-	["progress or volume row drawn", panelSvg.includes("<rect") && panelSvg.includes('rx="2"'), !haveSession],
+	[
+		// Either a progress bar, or - for a player that publishes no timeline
+		// at all, as Plex's desktop app does - the player label that replaces
+		// it. An empty band would mean neither was drawn.
+		"status row drawn (progress bar or player label)",
+		panelSvg.includes('rx="2"') || panelSvg.includes('letter-spacing="0.4"'),
+		!haveSession
+	],
+	[
+		`timeline row matches what the player publishes (${atStart.durationMs ? "has timeline" : "none"})`,
+		atStart.durationMs
+			? panelSvg.includes('rx="2"') && !panelSvg.includes("--:--")
+			: !panelSvg.includes("--:--") && !panelSvg.includes('y="62"'),
+		!haveSession
+	],
 	["press started playback", !startedPaused || playing.status === "playing", !haveSession],
 	["press pauses playback", paused?.status === "paused", !haveSession],
 	["press resumes playback", resumed?.status === "playing", !haveSession],

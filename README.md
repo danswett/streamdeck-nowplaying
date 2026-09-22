@@ -15,7 +15,7 @@ player that reports to SMTC works with no per-app code:
 | Plexamp (desktop) | Yes | Electron app, reports to SMTC |
 | Plex / TIDAL / Spotify in a browser | Yes | Edge, Chrome and Firefox all publish sessions |
 | Apple Music, Media Player, foobar2000, MusicBee, VLC | Yes | |
-| Plex HTPC (the Qt/mpv desktop app) | Unconfirmed | Does not reliably publish an SMTC session |
+| Plex HTPC (the Qt/mpv desktop app) | Partly | Metadata, artwork and transport work; it publishes **no position or duration**, so there is no progress bar |
 | Anything cast to another device | **No** | See below |
 
 ### The one real limitation
@@ -113,6 +113,29 @@ The bridge pushes whole state snapshots as newline-delimited JSON, and accepts
 commands on stdin. Artwork is sent only when it changes and cached by hash on
 the plugin side, since covers run 40–200 KB and would otherwise dominate the
 pipe.
+
+### Artwork
+
+Two things about artwork are not obvious, and both were found against Plex:
+
+- **The declared content type cannot be trusted.** Plex reports
+  `image/jpeg,image/jpe,image/jpg`. Embedded verbatim that yields
+  `data:image/jpeg,image/jpe,image/jpg;base64,...`, and a data URI parser stops
+  at the first comma — so it reads a plain `image/jpeg` payload with no base64
+  flag and decodes the remainder as text. The image silently fails to render.
+  The type is therefore taken from the bytes' magic number, with the declared
+  value used only as a fallback.
+- **Players publish far more pixels than the slot needs.** The art slot is
+  88×88 layout units, 176px on the device. Plex serves 1280×1280 — about 435 KB
+  once base64'd, for every track change. Artwork is scaled to a 192px longest
+  edge before it leaves the sidecar, which took that example to 8 KB.
+
+### Players that publish no timeline
+
+Plex's desktop app publishes transport controls and metadata but never a
+position or duration. An empty progress bar above two `--:--` placeholders
+reads as a fault, so when there is no timeline the row shows the player and its
+state instead.
 
 ### Sidecar lifecycle
 

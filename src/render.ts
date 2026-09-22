@@ -223,8 +223,8 @@ export function renderPanel(face: Face, now = Date.now()): string {
 				`<text x="${PANEL_W}" y="80" text-anchor="end" font-family="Segoe UI, Arial, sans-serif"` +
 					` font-size="12" font-weight="700" fill="${level === undefined ? FAINT : INK}">${readout}</text>`
 			);
-		} else {
-			const fraction = face.duration ? (face.position ?? 0) / face.duration : 0;
+		} else if (face.duration) {
+			const fraction = (face.position ?? 0) / face.duration;
 			body.push(
 				bar(62, fraction, face.status === "playing" ? ACCENT : FAINT),
 				statusGlyph(face.status, 0, 76, face.status === "playing" ? ACCENT : FAINT),
@@ -232,6 +232,19 @@ export function renderPanel(face: Face, now = Date.now()): string {
 					` font-weight="500" fill="${DIM}">${formatClock(face.position)}</text>`,
 				`<text x="${PANEL_W}" y="80" text-anchor="end" font-family="Segoe UI, Arial, sans-serif"` +
 					` font-size="10.5" font-weight="500" fill="${FAINT}">${formatClock(face.duration)}</text>`
+			);
+		} else {
+			// No timeline at all. Plex's desktop app publishes transport
+			// controls and metadata but never a position or duration, and an
+			// empty bar above two "--:--" placeholders reads as broken. The
+			// row shows the player and its state instead, which is at least
+			// true.
+			const tint = face.status === "playing" ? ACCENT : FAINT;
+			body.push(
+				statusGlyph(face.status, 0, 72, tint),
+				`<text x="12" y="76" font-family="Segoe UI, Arial, sans-serif" font-size="11"` +
+					` font-weight="600" fill="${DIM}" letter-spacing="0.4">` +
+					`${escapeText(fit(face.app.toUpperCase(), 11, PANEL_W - 14))}</text>`
 			);
 		}
 	}

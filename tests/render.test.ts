@@ -168,9 +168,22 @@ describe("renderPanel", () => {
 		expect(svg).toContain("2:40");
 	});
 
-	it("shows placeholders when the duration is unknown", () => {
-		const svg = renderPanel(base, 0);
-		expect(svg).toContain("--:--");
+	it("shows the player instead of an empty progress row when there is no timeline", () => {
+		// Plex's desktop app publishes transport controls and metadata but
+		// never a position or duration. A dead bar over two "--:--"
+		// placeholders looks like a fault rather than a missing feature.
+		const svg = renderPanel({ ...base, app: "Plex" }, 0);
+		expect(svg).not.toContain("--:--");
+		expect(svg).toContain("PLEX");
+		// No progress bar row is drawn at all.
+		expect(svg).not.toContain('y="62"');
+	});
+
+	it("still draws the progress row when a duration is known", () => {
+		const svg = renderPanel({ ...base, position: 30_000, duration: 60_000 }, 0);
+		expect(svg).toContain('y="62"');
+		expect(svg).toContain("0:30");
+		expect(svg).toContain("1:00");
 	});
 });
 
