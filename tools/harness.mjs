@@ -193,6 +193,25 @@ await wait(1200);
 const restored = await readAudio();
 console.log(`-- after +4 ticks: system=${restored.system} app=${restored.app}`);
 
+// Exercise the press path in both directions from whatever state the machine
+// is in. Testing only the direction that happened to be needed would leave
+// half of play/pause unverified.
+let paused = null;
+let resumed = null;
+if (haveSession) {
+	console.log("-- pressing dial (expect pause)");
+	press();
+	await wait(1800);
+	paused = await readAudio();
+	console.log(`   -> ${paused.status}`);
+
+	console.log("-- pressing dial (expect resume)");
+	press();
+	await wait(1800);
+	resumed = await readAudio();
+	console.log(`   -> ${resumed.status}`);
+}
+
 if (startedPaused) {
 	console.log("-- pressing dial to restore paused state");
 	press();
@@ -264,6 +283,8 @@ const checks = [
 	],
 	["progress or volume row drawn", panelSvg.includes("<rect") && panelSvg.includes('rx="2"'), !haveSession],
 	["press started playback", !startedPaused || playing.status === "playing", !haveSession],
+	["press pauses playback", paused?.status === "paused", !haveSession],
+	["press resumes playback", resumed?.status === "playing", !haveSession],
 	["player has a mixer entry while playing", playing.app !== null, !haveSession],
 	[
 		"rotate lowered the PLAYER's mixer volume",
@@ -280,7 +301,7 @@ const checks = [
 		!haveSession
 	],
 	["player volume restored", restored.app !== null && Math.abs(restored.app - playing.app) < 0.005, !haveSession],
-	["playback state restored", !startedPaused || final.status !== "playing", !haveSession],
+	["playback state restored", final.status === atStart.status, !haveSession],
 
 	// Idle rendering, reachable regardless of what is playing.
 	[
