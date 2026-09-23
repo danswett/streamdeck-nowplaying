@@ -23,40 +23,11 @@ import path from "node:path";
 
 import { Resvg } from "@resvg/resvg-js";
 
+import { ACCENT, DISC, FRAME, INK, TILE, WHITE, dial, mark } from "./mark.mjs";
+
 const PLUGIN = "com.bad-duck.nowplaying.sdPlugin";
 const ACTIONS = path.join(PLUGIN, "imgs", "actions");
 const PLUGIN_IMGS = path.join(PLUGIN, "imgs", "plugin");
-
-const TILE = "#121215";
-const ACCENT = "#1db954";
-const FRAME = "#2e2e35";
-const INK = "#f4f4f5";
-const WHITE = "#ffffff";
-
-/**
- * A framed record with the play head beside it, on the 72px key canvas.
- *
- * `accent`, `frame` and `ink` are parameters rather than literals precisely so
- * the list icon can pass white for all three.
- */
-function dial(accent, frame, ink) {
-	return (
-		`<rect x="14" y="14" width="44" height="44" rx="6" fill="none" stroke="${frame}" stroke-width="3"/>` +
-		`<circle cx="36" cy="36" r="7.5" fill="none" stroke="${accent}" stroke-width="3"/>` +
-		`<circle cx="36" cy="36" r="2" fill="${ink}"/>` +
-		`<path d="M 44 26 L 44 20 L 52 22 L 52 28 Z" fill="${accent}"/>`
-	);
-}
-
-/** The product mark: a record under a play head, on the 288px canvas. */
-function mark(accent, frame, ink, disc) {
-	return (
-		`<circle cx="144" cy="144" r="86" fill="${disc}" stroke="${frame}" stroke-width="8"/>` +
-		`<circle cx="144" cy="144" r="52" fill="none" stroke="${accent}" stroke-width="10"/>` +
-		`<circle cx="144" cy="144" r="16" fill="${ink}"/>` +
-		`<path d="M 186 104 L 186 68 L 232 78 L 232 114 Z" fill="${accent}"/>`
-	);
-}
 
 function svg(size, viewBox, body) {
 	return (
@@ -110,7 +81,7 @@ for (const stale of ["category-icon.png", "category-icon@2x.png"]) {
 const logo = svg(
 	288,
 	288,
-	`<rect width="288" height="288" rx="48" fill="${TILE}"/>${mark(ACCENT, FRAME, INK, "#1c1c21")}`
+	`<rect width="288" height="288" rx="48" fill="${TILE}"/>${mark(ACCENT, FRAME, INK, DISC)}`
 );
 
 await writePng(path.join(PLUGIN_IMGS, "marketplace.png"), logo, 256);

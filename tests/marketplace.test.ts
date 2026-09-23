@@ -24,7 +24,13 @@ const manifest = JSON.parse(readFileSync(path.join(PLUGIN_DIR, "manifest.json"),
 	Author: string;
 	Icon: string;
 	CategoryIcon: string;
-	Actions: { UUID: string; Name: string; Icon: string; States: { Image: string }[] }[];
+	Actions: {
+		UUID: string;
+		Name: string;
+		Icon: string;
+		Controllers?: string[];
+		States: { Image: string }[];
+	}[];
 };
 
 /**
@@ -202,5 +208,132 @@ describe("identity", () => {
 	it("does not include the author name in the category", () => {
 		// "include author names in category" is explicitly listed as incorrect.
 		expect(manifest.Category.toLowerCase()).not.toContain("bad duck");
+	});
+});
+
+/**
+ * The Marketplace listing: assets and copy.
+ *
+ * These are checked by a human at submission time and the images are
+ * generated, so a regression is invisible until a submission is declined.
+ */
+describe("the Marketplace listing", () => {
+	const MARKET_DIR = path.resolve(__dirname, "..", "marketplace");
+	const readme = readFileSync(path.join(MARKET_DIR, "README.md"), "utf8");
+
+	/**
+	 * Every fenced block, plus the first non-empty line after it - which is
+	 * where each piece of copy states its own length.
+	 */
+	function fencedBlocks(): { lang: string; text: string; after: string }[] {
+		const out: { lang: string; text: string; after: string }[] = [];
+		const lines = readme.split(/\r?\n/);
+		let inFence = false;
+		let lang = "";
+		let buf: string[] = [];
+
+		for (let i = 0; i < lines.length; i++) {
+			const fence = /^```(\w*)\s*$/.exec(lines[i]!);
+			if (fence) {
+				if (!inFence) {
+					inFence = true;
+					lang = fence[1]!;
+					buf = [];
+				} else {
+					const after = lines.slice(i + 1).find((l) => l.trim() !== "") ?? "";
+					out.push({ lang, text: buf.join("\n"), after: after.trim() });
+					inFence = false;
+				}
+				continue;
+			}
+			if (inFence) buf.push(lines[i]!);
+		}
+		return out;
+	}
+
+	const plain = fencedBlocks().filter((b) => b.lang === "");
+	const name = plain.find((b) => !b.text.includes("\n"))?.text ?? "";
+	const description = plain.find((b) => b.text.startsWith("Turn a Stream Deck"))?.text ?? "";
+
+	/** Reads width and height out of a PNG's IHDR, no decoder needed. */
+	function pngSize(file: string): { width: number; height: number } {
+		const buf = readFileSync(file);
+		expect(buf.subarray(1, 4).toString("ascii"), `${file} is not a PNG`).toBe("PNG");
+		return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+	}
+
+	it("names the product the same way the manifest does", () => {
+		expect(name).toBe(manifest.Name);
+		expect(name.length).toBeLessThanOrEqual(30);
+	});
+
+	it("keeps the description within 250 and 1500 characters", () => {
+		expect(description.length).toBeGreaterThanOrEqual(250);
+		expect(description.length).toBeLessThanOrEqual(1500);
+	});
+
+	it("says what it does in a first sentence short enough to survive truncation", () => {
+		// Search engines cut the description at roughly 250 characters, and that
+		// cut lands mid-word for any copy longer than that - it cannot be helped.
+		// What can be helped is the opening sentence being complete and saying
+		// what the product is, well before anything gets cut.
+		const first = /^.*?\.\s/.exec(description)?.[0]?.trim() ?? "";
+		expect(first, "no sentence ends in the description").not.toBe("");
+		expect(first.length).toBeLessThanOrEqual(120);
+		expect(first.toLowerCase()).toContain("stream deck");
+	});
+
+	it("states a character count that matches the copy it describes", () => {
+		// Maker Console enforces a limit against the number, so a stale count is
+		// worse than none.
+		const counted = plain
+			.map((b) => ({ block: b, stated: /^([\d,]+) characters\.?$/.exec(b.after) }))
+			.filter((x) => x.stated !== null);
+
+		expect(counted.length, "no block states its own length").toBeGreaterThan(0);
+
+		for (const { block, stated } of counted) {
+			const actual = block.text.replace(/\n+$/, "").length;
+			expect(actual, `"${block.text.slice(0, 40)}..." is ${actual}`).toBe(
+				Number(stated![1]!.replace(/,/g, ""))
+			);
+		}
+	});
+
+	it("ships an app icon, a thumbnail and at least three gallery items", () => {
+		expect(pngSize(path.join(MARKET_DIR, "app-icon-288.png"))).toEqual({ width: 288, height: 288 });
+		expect(pngSize(path.join(MARKET_DIR, "thumbnail.png"))).toEqual({ width: 1920, height: 960 });
+
+		const gallery = [...new Set([...readme.matchAll(/`(gallery-[\w-]+\.png)`/g)].map((m) => m[1]!))];
+		expect(gallery.length, "Elgato require three").toBeGreaterThanOrEqual(3);
+		expect(gallery.length, "Elgato allow ten").toBeLessThanOrEqual(10);
+
+		for (const item of gallery) {
+			expect(pngSize(path.join(MARKET_DIR, item)), item).toEqual({ width: 1920, height: 960 });
+		}
+	});
+
+	it("only claims gestures the action actually implements", () => {
+		// "Six controls" was in an earlier draft of gallery 2 and was wrong:
+		// there are four gestures, each configurable. Copy that overstates the
+		// product is the specific thing that got a sibling plugin declined.
+		const action = readFileSync(path.resolve(__dirname, "..", "src", "actions", "nowplaying.ts"), "utf8");
+		const claimed: [string, string][] = [
+			["play or pause", "onDialUp"],
+			["tap for next", "onTouchTap"],
+			["hold for previous", "onTouchTap"],
+			["turn for volume", "onDialRotate"]
+		];
+
+		for (const [phrase, handler] of claimed) {
+			expect(description.toLowerCase(), `describes "${phrase}"`).toContain(phrase);
+			expect(action, `${handler} backs "${phrase}"`).toContain(handler);
+		}
+	});
+
+	it("does not promise a plain-key action, because the manifest ships none", () => {
+		const controllers = new Set(manifest.Actions.flatMap((a) => a.Controllers ?? []));
+		expect([...controllers]).toEqual(["Encoder"]);
+		expect(readme).toMatch(/Stream Deck \+ and Stream Deck Studio only/);
 	});
 });

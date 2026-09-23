@@ -8,6 +8,7 @@
 	"scripts": {
 		"build:bridge": "dotnet publish bridge/SmtcBridge.csproj -c Release -o com.bad-duck.nowplaying.sdPlugin/bin/bridge --nologo",
 		"build:icons": "node tools/build-icons.mjs",
+		"marketplace": "node tools/generate-marketplace.ts",
 		"build": "npm run build:icons && rollup -c",
 		"all": "npm run build:bridge && npm run build",
 		"watch": "rollup -c -w --watch.onEnd=\"streamdeck restart com.bad-duck.nowplaying\"",
