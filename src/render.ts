@@ -109,9 +109,9 @@ type Line = {
 	readonly id: string;
 };
 
-function renderLine(line: Line, now: number): string {
+function renderLine(line: Line, now: number, width: number): string {
 	if (!line.text) return "";
-	const offset = scrollOffset(line.text, line.size, PANEL_W, now);
+	const offset = scrollOffset(line.text, line.size, width, now);
 	const text =
 		`<text x="${(-offset).toFixed(1)}" y="${line.baseline}" font-family="Segoe UI, Arial, sans-serif"` +
 		` font-size="${line.size}" font-weight="${line.weight}" fill="${line.fill}"` +
@@ -120,11 +120,11 @@ function renderLine(line: Line, now: number): string {
 
 	// Only clip lines that actually scroll; a clip path per line otherwise
 	// costs rasterising work for nothing.
-	if (offset === 0 && !overflows(line.text, line.size, PANEL_W)) return text;
+	if (offset === 0 && !overflows(line.text, line.size, width)) return text;
 
 	return (
 		`<defs><clipPath id="${line.id}">` +
-		`<rect x="0" y="${line.top}" width="${PANEL_W}" height="${line.height}"/>` +
+		`<rect x="0" y="${line.top}" width="${width}" height="${line.height}"/>` +
 		`</clipPath></defs>` +
 		`<g clip-path="url(#${line.id})">${text}</g>`
 	);
@@ -201,16 +201,22 @@ function formatClock(ms: number | undefined): string {
 	return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 
-function bar(y: number, fraction: number, fill: string): string {
-	const width = Math.max(0, Math.min(1, fraction)) * PANEL_W;
+function bar(y: number, fraction: number, fill: string, width: number): string {
+	const filled = Math.max(0, Math.min(1, fraction)) * width;
 	return (
-		`<rect x="0" y="${y}" width="${PANEL_W}" height="4" rx="2" fill="${TRACK}"/>` +
-		(width > 0 ? `<rect x="0" y="${y}" width="${width.toFixed(1)}" height="4" rx="2" fill="${fill}"/>` : "")
+		`<rect x="0" y="${y}" width="${width}" height="4" rx="2" fill="${TRACK}"/>` +
+		(filled > 0 ? `<rect x="0" y="${y}" width="${filled.toFixed(1)}" height="4" rx="2" fill="${fill}"/>` : "")
 	);
 }
 
-/** Paints the text half of the encoder panel. */
-export function renderPanel(face: Face, now = Date.now()): string {
+/**
+ * The text rows shared by both panels, drawn at a given width.
+ *
+ * One routine for both means the full-width panel cannot drift from the
+ * original in behaviour - scrolling, the volume readout, the no-timeline row -
+ * only in how much room it has.
+ */
+function renderBody(face: Face, now: number, width: number): string[] {
 	const body: string[] = [];
 
 	{
@@ -218,15 +224,18 @@ export function renderPanel(face: Face, now = Date.now()): string {
 		body.push(
 			renderLine(
 				{ text: face.title, size: 15, weight: 700, fill: dimmed ? DIM : INK, top: 1, height: 21, baseline: 17, id: "t" },
-				now
+				now,
+				width
 			),
 			renderLine(
 				{ text: face.artist, size: 12.5, weight: 500, fill: DIM, top: 22, height: 18, baseline: 35, id: "a" },
-				now
+				now,
+				width
 			),
 			renderLine(
 				{ text: face.album, size: 11, weight: 400, fill: FAINT, top: 40, height: 16, baseline: 52, id: "b" },
-				now
+				now,
+				width
 			)
 		);
 
@@ -241,9 +250,9 @@ export function renderPanel(face: Face, now = Date.now()): string {
 				// number would suggest something is happening when nothing
 				// reaches the speakers.
 				body.push(
-					`<text x="${PANEL_W / 2}" y="72" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"` +
+					`<text x="${width / 2}" y="72" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"` +
 						` font-size="11" font-weight="600" fill="${AMBER}" letter-spacing="0.3">EXCLUSIVE MODE</text>`,
-					`<text x="${PANEL_W / 2}" y="86" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"` +
+					`<text x="${width / 2}" y="86" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif"` +
 						` font-size="9" font-weight="400" fill="${FAINT}">no volume control</text>`
 				);
 			} else {
@@ -252,22 +261,22 @@ export function renderPanel(face: Face, now = Date.now()): string {
 				const readoutWidth = textWidth(readout, 12);
 
 				body.push(
-					bar(62, inactive ? 0 : level, inactive ? FAINT : ACCENT),
+					bar(62, inactive ? 0 : level, inactive ? FAINT : ACCENT, width),
 					`<text x="0" y="80" font-family="Segoe UI, Arial, sans-serif" font-size="10.5"` +
 						` font-weight="600" fill="${FAINT}" letter-spacing="0.6">` +
-						`${escapeText(fit(label.toUpperCase(), 10.5, PANEL_W - readoutWidth - 6))}</text>`,
-					`<text x="${PANEL_W}" y="80" text-anchor="end" font-family="Segoe UI, Arial, sans-serif"` +
+						`${escapeText(fit(label.toUpperCase(), 10.5, width - readoutWidth - 6))}</text>`,
+					`<text x="${width}" y="80" text-anchor="end" font-family="Segoe UI, Arial, sans-serif"` +
 						` font-size="12" font-weight="700" fill="${level === undefined ? FAINT : INK}">${readout}</text>`
 				);
 			}
 		} else if (face.duration) {
 			const fraction = (face.position ?? 0) / face.duration;
 			body.push(
-				bar(62, fraction, face.status === "playing" ? ACCENT : FAINT),
+				bar(62, fraction, face.status === "playing" ? ACCENT : FAINT, width),
 				statusGlyph(face.status, 0, 76, face.status === "playing" ? ACCENT : FAINT),
 				`<text x="12" y="80" font-family="Segoe UI, Arial, sans-serif" font-size="10.5"` +
 					` font-weight="500" fill="${DIM}">${formatClock(face.position)}</text>`,
-				`<text x="${PANEL_W}" y="80" text-anchor="end" font-family="Segoe UI, Arial, sans-serif"` +
+				`<text x="${width}" y="80" text-anchor="end" font-family="Segoe UI, Arial, sans-serif"` +
 					` font-size="10.5" font-weight="500" fill="${FAINT}">${formatClock(face.duration)}</text>`
 			);
 		} else {
@@ -281,16 +290,21 @@ export function renderPanel(face: Face, now = Date.now()): string {
 				statusGlyph(face.status, 0, 72, tint),
 				`<text x="12" y="76" font-family="Segoe UI, Arial, sans-serif" font-size="11"` +
 					` font-weight="600" fill="${DIM}" letter-spacing="0.4">` +
-					`${escapeText(fit(face.app.toUpperCase(), 11, PANEL_W - 14))}</text>`
+					`${escapeText(fit(face.app.toUpperCase(), 11, width - 14))}</text>`
 			);
 		}
 	}
 
+	return body;
+}
+
+/** Paints the text half of the encoder panel. */
+export function renderPanel(face: Face, now = Date.now()): string {
 	return (
 		`<svg xmlns="http://www.w3.org/2000/svg" width="${PANEL_W}" height="${PANEL_H}"` +
 		` viewBox="0 0 ${PANEL_W} ${PANEL_H}">` +
 		`<rect width="${PANEL_W}" height="${PANEL_H}" fill="${BACKDROP}"/>` +
-		body.join("") +
+		renderBody(face, now, PANEL_W).join("") +
 		`</svg>`
 	);
 }
@@ -317,6 +331,27 @@ export function renderArtPlaceholder(label: string): string {
 
 export const CANVAS_W = 200;
 export const CANVAS_H = 100;
+
+/** Side margin for the full-width panel; the narrow one gets its gap from the art. */
+export const WIDE_INSET = 8;
+export const WIDE_TEXT_W = CANVAS_W - WIDE_INSET * 2;
+
+/**
+ * The whole panel when album art is hidden.
+ *
+ * Same rows as {@link renderPanel}, across the full strip instead of the
+ * 104px left beside the art slot.
+ */
+export function renderWidePanel(face: Face, now = Date.now()): string {
+	return (
+		`<svg xmlns="http://www.w3.org/2000/svg" width="${CANVAS_W}" height="${CANVAS_H}"` +
+		` viewBox="0 0 ${CANVAS_W} ${CANVAS_H}">` +
+		`<rect width="${CANVAS_W}" height="${CANVAS_H}" fill="${BACKDROP}"/>` +
+		`<g transform="translate(${WIDE_INSET},0)">` +
+		renderBody(face, now, WIDE_TEXT_W).join("") +
+		`</g></svg>`
+	);
+}
 
 /** Largest size at which the idle message still fits the canvas. */
 const IDLE_SIZES = [21, 19, 17, 15, 13];

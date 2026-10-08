@@ -43,6 +43,22 @@ Lines that do not fit scroll back and forth rather than being truncated, because
 truncation tends to remove exactly the part that distinguishes one version of a
 track from another.
 
+With **Album art** set to **Hide** in the dial's settings, the art slot is
+dropped and the same rows span the whole strip:
+
+```
+┌────────────────────────────────────────┐
+│ Making A Killing                       │
+│ Phantom Planet                         │
+│ Phantom Planet                         │
+│ ▬▬▬▬▬▬▬▬▬▬▬▬▭▭▭▭▭▭▭▭▭▭▭▭               │
+│ ▌▌ 1:35                          2:40  │
+└────────────────────────────────────────┘
+```
+
+The default is **Show**, so dials set up before the option existed are
+unchanged.
+
 When nothing is playing the dial switches to a **second layout** that gives the
 whole 200×100 canvas to one centred line:
 

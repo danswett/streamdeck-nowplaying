@@ -16,28 +16,18 @@ import type { JsonObject, JsonValue } from "@elgato/utils";
 import {
 	type Face,
 	ART_SIZE,
-	PANEL_W,
 	renderArtPlaceholder,
 	renderIdle,
 	renderPanel,
+	renderWidePanel,
 	overflows,
 	toPixmap
 } from "../render";
+import { type ArtSetting, layoutFor, showsArt, textWidthFor } from "../layout";
 import { type Session, type State, bridge } from "../smtc/bridge";
 import { labelFor, pick, positionOf, sources } from "../smtc/store";
 
 const logger = streamDeck.logger.createScope("nowplaying");
-
-const LAYOUT = "layouts/nowplaying.json";
-
-/**
- * Used whenever there is nothing to show.
- *
- * A separate layout, because the playing layout reserves 88px for album art;
- * idle needs the whole canvas for one legible line instead of a blank tile
- * beside cramped text.
- */
-const IDLE_LAYOUT = "layouts/idle.json";
 
 /** How long the volume readout replaces the progress row after an adjustment. */
 const VOLUME_HOLD_MS = 1500;
@@ -69,6 +59,8 @@ const LINGER_MS = 5000;
 export type NowPlayingSettings = {
 	/** "auto", or a specific SMTC source app id to pin to. */
 	source?: string;
+	/** "hide" drops the album art so the text spans the whole strip. */
+	art?: ArtSetting;
 	rotate?: "volume" | "track" | "seek" | "none";
 	/** Percentage points per detent. */
 	volumeStep?: number;
@@ -365,7 +357,7 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 	 */
 	#paint(instance: Instance): void {
 		const idle = this.#face(instance, bridge.state, Date.now()).message !== undefined;
-		const wanted = idle ? IDLE_LAYOUT : LAYOUT;
+		const wanted = layoutFor(idle, instance.settings.art);
 
 		if (instance.layout === wanted) {
 			this.#draw(instance);
@@ -397,6 +389,12 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 			if (canvas !== instance.paintedPanel) {
 				instance.paintedPanel = canvas;
 				feedback.canvas = toPixmap(canvas);
+			}
+		} else if (!showsArt(instance.settings.art)) {
+			const panel = renderWidePanel(face, now);
+			if (panel !== instance.paintedPanel) {
+				instance.paintedPanel = panel;
+				feedback.panel = toPixmap(panel);
 			}
 		} else {
 			const session = this.#session(instance);
@@ -467,10 +465,11 @@ export class NowPlayingAction extends SingletonAction<Settings> {
 			// An idle panel is a single static line; there is nothing to move.
 			if (face.message !== undefined) continue;
 
+			const width = textWidthFor(instance.settings.art);
 			const scrolling =
-				overflows(face.title, 15, PANEL_W) ||
-				overflows(face.artist, 12.5, PANEL_W) ||
-				overflows(face.album, 11, PANEL_W);
+				overflows(face.title, 15, width) ||
+				overflows(face.artist, 12.5, width) ||
+				overflows(face.album, 11, width);
 
 			if (scrolling || now < instance.volumeUntil) {
 				rate = ANIMATE_MS;

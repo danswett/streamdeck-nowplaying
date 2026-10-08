@@ -5,10 +5,12 @@ import {
 	overflows,
 	renderIdle,
 	renderPanel,
+	renderWidePanel,
 	scrollOffset,
 	textWidth,
 	toPixmap,
-	PANEL_W
+	PANEL_W,
+	WIDE_TEXT_W
 } from "../src/render";
 
 const base = {
@@ -305,5 +307,78 @@ describe("toPixmap", () => {
 		expect(uri.startsWith("data:image/svg+xml;base64,")).toBe(true);
 		const decoded = Buffer.from(uri.split(",")[1], "base64").toString("utf8");
 		expect(decoded).toBe('<svg fill="#ff0000"/>');
+	});
+});
+
+describe("renderWidePanel", () => {
+	it("fills the whole 200x100 canvas, since there is no art slot beside it", () => {
+		const svg = renderWidePanel(base, 0);
+		expect(svg.startsWith("<svg")).toBe(true);
+		expect(svg).toContain(`width="${CANVAS_W}"`);
+		expect(svg).toContain('height="100"');
+		expect(svg).toContain('transform="translate(8,0)"');
+		expect(svg.trimEnd().endsWith("</svg>")).toBe(true);
+	});
+
+	it("shows title, artist and album", () => {
+		const svg = renderWidePanel({ ...base, title: "Karma Police", artist: "Radiohead", album: "OK Computer" }, 0);
+		expect(svg).toContain("Karma Police");
+		expect(svg).toContain("Radiohead");
+		expect(svg).toContain("OK Computer");
+	});
+
+	it("escapes XML in metadata", () => {
+		const svg = renderWidePanel({ ...base, title: "Me & You", artist: "<script>", album: 'Say "hi"' }, 0);
+		expect(svg).toContain("Me &amp; You");
+		expect(svg).toContain("&lt;script&gt;");
+		expect(svg).toContain("Say &quot;hi&quot;");
+		expect(svg).not.toContain("<script>");
+	});
+
+	it("does not clip a title that only overflowed the narrow panel", () => {
+		// The point of hiding the art: a title this long scrolled beside the
+		// artwork but fits outright across the full strip.
+		const title = "Paranoid Android";
+		expect(overflows(title, 15, PANEL_W)).toBe(true);
+		expect(overflows(title, 15, WIDE_TEXT_W)).toBe(false);
+		expect(renderWidePanel({ ...base, title }, 0)).not.toContain('<clipPath id="t"');
+	});
+
+	it("still scrolls a title too long for the full strip", () => {
+		const title = "A Very Long Track Name That Will Not Fit On The Panel At All";
+		expect(renderWidePanel({ ...base, title }, 0)).toContain(
+			`<clipPath id="t"><rect x="0" y="1" width="${WIDE_TEXT_W}"`
+		);
+	});
+
+	it("spans the progress bar across the full text width", () => {
+		const svg = renderWidePanel({ ...base, position: 50_000, duration: 100_000 }, 0);
+		const widths = [...svg.matchAll(/y="62" width="([\d.]+)"/g)].map((m) => Number(m[1]));
+		expect(widths[0]).toBe(WIDE_TEXT_W);
+		expect(widths[1]).toBeCloseTo(WIDE_TEXT_W / 2, 1);
+		expect(svg).toContain(`x="${WIDE_TEXT_W}" y="80" text-anchor="end"`);
+	});
+
+	it("shows a pause glyph and a dimmed bar when paused", () => {
+		const svg = renderWidePanel({ ...base, status: "paused", position: 30_000, duration: 60_000 }, 0);
+		expect(svg).toContain('width="2.4" height="9"');
+		expect(svg).not.toContain('fill="#1db954"');
+	});
+
+	it("swaps the progress row for the volume readout", () => {
+		const svg = renderWidePanel(
+			{ ...base, volume: { level: 0.64, muted: false, label: "Spotify" }, position: 1000, duration: 2000 },
+			0
+		);
+		expect(svg).toContain("SPOTIFY");
+		expect(svg).toContain("64%");
+		expect(svg).not.toContain("0:01");
+	});
+
+	it("names the player instead of an empty bar when there is no timeline", () => {
+		const svg = renderWidePanel({ ...base, app: "Plex" }, 0);
+		expect(svg).toContain("PLEX");
+		expect(svg).not.toContain('y="62"');
+		expect(svg).not.toContain("--:--");
 	});
 });
