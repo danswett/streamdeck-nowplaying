@@ -1,0 +1,100 @@
+name: pending approval
+
+# A fork pull request from a first-time contributor does not run CI until a
+# maintainer approves it, and nothing announces that it is waiting. PR #1 sat
+# for ten days with no CI result because of it.
+#
+# The gate itself is worth keeping - the build holds no secrets and the token
+# is read-only, but approval is still the only thing between a fork and this
+# repository's Actions minutes - so this watches the gate instead of removing
+# it. An issue is used as the alarm because GitHub mails those, whereas the
+# "waiting for approval" state is only visible to someone already looking at
+# the Actions tab.
+#
+# Note: GitHub disables scheduled workflows after 60 days without repository
+# activity, so a long quiet spell silences this too.
+
+on:
+  schedule:
+    # A stalled run is not urgent, only invisible; four times a day is plenty.
+    # Deliberately off the hour, as runs scheduled on it are the most delayed.
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  issues: write
+
+concurrency:
+  group: pending-approval
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Raise or clear the alarm
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          # Hidden in the body rather than matched on the title, so retitling
+          # the issue by hand does not make this open a second one.
+          MARKER: "<!-- pending-approval-watch -->"
+        run: |
+          set -euo pipefail
+
+          # A run held at the gate reports status "completed" with conclusion
+          # "action_required". The server-side filter is treated as a
+          # narrowing only, and both fields are checked here.
+          gh api "repos/$REPO/actions/runs?status=action_required&per_page=100" \
+            --jq '[.workflow_runs[]
+                   | select(.status == "action_required" or .conclusion == "action_required")
+                   | {id, name, branch: .head_branch, actor: .actor.login, url: .html_url}]' \
+            > runs.json
+
+          count=$(jq 'length' runs.json)
+          echo "Runs awaiting approval: $count"
+
+          existing=$(gh issue list --repo "$REPO" --state open --limit 100 --json number,body \
+            --jq "map(select(.body | contains(\"$MARKER\"))) | .[0].number // empty")
+
+          if [ "$count" -eq 0 ]; then
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --repo "$REPO" \
+                --comment "Nothing is waiting for approval any more."
+              echo "Closed #$existing."
+            else
+              echo "Nothing waiting, nothing to close."
+            fi
+            exit 0
+          fi
+
+          {
+            echo "These runs are held at the first-time-contributor approval gate."
+            echo "Until one is approved, its pull request has **no CI result at all**."
+            echo
+            jq -r '.[] | "- [\(.name) on `\(.branch)`](\(.url)) — opened by @\(.actor)"' runs.json
+            echo
+            echo "Review the diff before approving: approving runs the fork's code."
+            echo
+            echo '```'
+            jq -r --arg repo "$REPO" \
+              '.[] | "gh api -X POST repos/\($repo)/actions/runs/\(.id)/approve"' runs.json
+            echo '```'
+            echo
+            echo "This issue closes itself once nothing is waiting."
+            echo
+            echo "$MARKER"
+          } > body.md
+
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --repo "$REPO" --body-file body.md
+            echo "Updated #$existing."
+          else
+            gh issue create --repo "$REPO" \
+              --title "CI runs are waiting for approval" \
+              --body-file body.md \
+              --assignee "$OWNER"
+            echo "Opened a new issue."
+          fi
